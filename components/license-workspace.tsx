@@ -64,6 +64,8 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
   const [selectedClient, setSelectedClient] = useState('')
   const [selectedSystem, setSelectedSystem] = useState('')
   const [scriptOrigin, setScriptOrigin] = useState(defaultLicenseSiteUrl)
+  const [middlewareByLicense, setMiddlewareByLicense] = useState<Record<string, string>>({})
+  const [middlewareLoadingId, setMiddlewareLoadingId] = useState('')
 
   async function load() {
     setLoading(true)
@@ -204,6 +206,42 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
     }
   }
 
+  async function loadMiddleware(licenseId: string) {
+    setMiddlewareLoadingId(licenseId)
+    setError('')
+    try {
+      const result = await requestJson<{ middleware: string }>(`/api/admin/licenses/${licenseId}/middleware`)
+      setMiddlewareByLicense((current) => ({ ...current, [licenseId]: result.middleware }))
+    } catch (middlewareError) {
+      setError(middlewareError instanceof Error ? middlewareError.message : 'Não foi possível gerar o middleware.')
+    } finally {
+      setMiddlewareLoadingId('')
+    }
+  }
+
+  async function copyMiddleware(licenseId: string) {
+    const middleware = middlewareByLicense[licenseId]
+    if (!middleware) return
+    try {
+      await navigator.clipboard.writeText(middleware)
+      setNotice('Middleware copiado para a área de transferência.')
+    } catch {
+      setError('Não foi possível copiar automaticamente o middleware.')
+    }
+  }
+
+  function downloadMiddleware(licenseId: string) {
+    const middleware = middlewareByLicense[licenseId]
+    if (!middleware) return
+    const blob = new Blob([middleware], { type: 'text/typescript;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'middleware.ts'
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   return <section className="space-y-6">
     <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
       <div>
@@ -302,6 +340,13 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
                 <label className="flex items-center gap-1.5 text-[10px] text-slate-500"><input type="checkbox" checked={module.is_enabled} disabled={!canManage || !module.is_contracted || !isModuleAvailable(module.availability_status)} onChange={(event) => void updateModule(license.id, module, module.is_contracted, event.target.checked)} className="accent-emerald-500 disabled:opacity-40" />Liberado</label>
               </div>
             </div>)}</div> : <p className="rounded-lg border border-dashed border-white/[0.08] p-5 text-center text-xs text-slate-600">Nenhum módulo cadastrado para este sistema.</p>}
+            <div className="mt-6 rounded-lg border border-blue-400/15 bg-blue-400/[0.04] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div><h3 className="text-xs font-semibold text-blue-100">Middleware para o projeto do cliente</h3><p className="mt-1 text-[11px] text-slate-500">Gere o arquivo e copie para <code>middleware.ts</code> na raiz do projeto Next.js do cliente.</p></div>
+                <button type="button" onClick={() => void loadMiddleware(license.id)} disabled={middlewareLoadingId === license.id} className="rounded-lg bg-blue-500 px-3 py-2 text-[11px] font-semibold text-white hover:bg-blue-400 disabled:opacity-50">{middlewareLoadingId === license.id ? 'Gerando...' : middlewareByLicense[license.id] ? 'Regenerar arquivo' : 'Gerar middleware'}</button>
+              </div>
+              {middlewareByLicense[license.id] && <><textarea readOnly value={middlewareByLicense[license.id]} aria-label="Código do middleware" className="mt-3 min-h-64 w-full rounded-lg border border-white/[0.08] bg-black/30 p-3 font-mono text-[10px] leading-relaxed text-slate-300 outline-none" /><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => void copyMiddleware(license.id)} className="rounded-lg border border-white/10 px-3 py-2 text-[11px] text-slate-200 hover:bg-white/5">Copiar código</button><button type="button" onClick={() => downloadMiddleware(license.id)} className="rounded-lg border border-white/10 px-3 py-2 text-[11px] text-slate-200 hover:bg-white/5">Baixar middleware.ts</button></div></>}
+            </div>
           </div>}
         </article>
       })}</div> : <div className="rounded-xl border border-white/[0.07] bg-[#11161e] p-10 text-center"><Check className="mx-auto size-6 text-slate-600" /><p className="mt-3 text-sm text-slate-400">Nenhuma licença encontrada</p><p className="mt-1 text-xs text-slate-600">Emita uma licença para começar a controlar o acesso aos módulos.</p></div>}
