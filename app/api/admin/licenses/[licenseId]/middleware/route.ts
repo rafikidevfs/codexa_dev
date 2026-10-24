@@ -14,14 +14,27 @@ export async function GET(_request: Request, context: { params: Promise<{ licens
     const { supabase } = await requireWorkspacePermission('licenses', 'view')
     const [{ data: license, error: licenseError }, { data: mappings, error: mappingsError }] = await Promise.all([
       supabase.from('licenses').select('id,system_id').eq('id', licenseId).maybeSingle(),
-      supabase.from('license_route_mappings').select('id,route_pattern,blocked_path,system_module_id,system_modules!inner(internal_code,name)').eq('license_id', licenseId).order('route_pattern'),
+      supabase.from('license_route_mappings').select('id,route_pattern,blocked_path,system_module_id').eq('license_id', licenseId).order('route_pattern'),
     ])
-    if (licenseError || mappingsError) return errorResponse(licenseError ?? mappingsError)
+    if (licenseError) return errorResponse(licenseError)
+    if (mappingsError) {
+      if (mappingsError.code === '42P01' || mappingsError.code === 'PGRST205') {
+        return NextResponse.json({ error: 'A tabela de rotas ainda não foi criada. Execute o arquivo supabase/manual/license_route_mappings.sql no Supabase.' }, { status: 503 })
+      }
+      return errorResponse(mappingsError)
+    }
     if (!license) return NextResponse.json({ error: 'Licença não encontrada.' }, { status: 404 })
-    const routes = (mappings ?? []).map((mapping) => {
-      const module = Array.isArray(mapping.system_modules) ? mapping.system_modules[0] : mapping.system_modules
-      return { routePattern: mapping.route_pattern, blockedPath: mapping.blocked_path, moduleCode: module?.internal_code ?? '' }
-    }).filter((route) => route.moduleCode)
+    const moduleIds = [...new Set((mappings ?? []).map((mapping) => mapping.system_module_id))]
+    const { data: modules, error: modulesError } = moduleIds.length
+      ? await supabase.from('system_modules').select('id,internal_code').in('id', moduleIds)
+      : { data: [], error: null }
+    if (modulesError) return errorResponse(modulesError)
+    const moduleCodes = new Map((modules ?? []).map((module) => [module.id, module.internal_code]))
+    const routes = (mappings ?? []).map((mapping) => ({
+      routePattern: mapping.route_pattern,
+      blockedPath: mapping.blocked_path,
+      moduleCode: moduleCodes.get(mapping.system_module_id) ?? '',
+    })).filter((route) => route.moduleCode)
     return NextResponse.json({ routes, middleware: generateMiddleware({ apiUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/licenses/validate`, routes }) })
   } catch (error) { return errorResponse(error) }
 }
