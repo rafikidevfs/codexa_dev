@@ -284,16 +284,16 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
   }
 
   return (
-    <div className="workspace-shell min-h-screen bg-[#0b0d12] text-slate-100">
-      <aside className={`fixed inset-y-0 left-0 z-40 flex w-[258px] flex-col border-r border-white/[0.07] bg-[#0f1219] transition-transform duration-200 lg:translate-x-0 ${collapsed ? 'lg:w-[78px]' : ''} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="flex h-24 items-center border-b border-white/[0.07] px-3">
+    <div className="workspace-shell min-h-screen bg-[#090b10] text-slate-100">
+      <aside className={`workspace-sidebar fixed inset-y-0 left-0 z-40 flex w-[258px] flex-col border-r border-white/[0.08] bg-[#0d1118] transition-transform duration-200 lg:translate-x-0 ${collapsed ? 'lg:w-[78px]' : ''} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="flex h-24 items-center border-b border-white/[0.08] px-3">
           <div className="flex min-w-0 flex-1 items-center justify-center">
             <Image src="/codexa-logo.png" alt="Codexa" width={150} height={150} priority className={`shrink-0 object-contain ${collapsed ? 'size-16' : 'size-24'}`} />
           </div>
           <button onClick={() => setCollapsed(!collapsed)} className="ml-auto hidden rounded-md p-1.5 text-slate-500 hover:bg-white/5 hover:text-slate-200 lg:block" aria-label={collapsed ? 'Expandir menu' : 'Recolher menu'}>{collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}</button>
           <button onClick={() => setMobileOpen(false)} className="ml-auto rounded-md p-1.5 text-slate-500 lg:hidden" aria-label="Fechar menu"><X className="size-4" /></button>
         </div>
-        <nav aria-label="Navegação principal" className="flex-1 space-y-4 overflow-y-auto px-3 py-5">
+        <nav aria-label="Navegação principal" className="flex-1 space-y-5 overflow-y-auto px-3 py-5">
           {navigationGroups.map((group) => {
             const visibleItems = group.items.filter((item) => {
               const slug = sectionSlugs[item.label]
@@ -317,7 +317,7 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
       </aside>
       {mobileOpen && <button className="fixed inset-0 z-30 bg-black/60 lg:hidden" onClick={() => setMobileOpen(false)} aria-label="Fechar menu" />}
       <div className={`transition-[margin] duration-200 ${collapsed ? 'lg:ml-[78px]' : 'lg:ml-[258px]'}`}>
-        <header className="sticky top-0 z-20 flex min-h-[72px] flex-wrap items-center gap-2 border-b border-white/[0.07] bg-[#0b0d12]/90 px-3 py-2 backdrop-blur-xl sm:gap-4 sm:px-7">
+        <header className="workspace-header sticky top-0 z-20 flex min-h-[72px] flex-wrap items-center gap-2 border-b border-white/[0.08] bg-[#090b10]/88 px-3 py-2 backdrop-blur-xl sm:gap-4 sm:px-7">
           <button className="rounded-md p-2 text-slate-400 hover:bg-white/5 lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Abrir menu"><Menu className="size-5" /></button>
           <div className="hidden items-center gap-2 text-xs text-slate-500 sm:flex"><span>Workspace</span><ChevronRight className="size-3" /><span className="text-slate-300">{activeSection}</span></div>
           <div className="ml-auto flex items-center gap-2">
@@ -349,7 +349,7 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
             <button onClick={() => void signOut()} className="rounded-lg px-2 py-1.5 text-xs text-slate-500 hover:bg-white/5 hover:text-white" aria-label="Sair da conta">Sair</button>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[1500px] overflow-x-hidden px-3 py-5 sm:px-7 sm:py-7 lg:px-9">{page ?? <>{activeSection === 'Dashboard' &&         <div id="dashboard-overview" className="scroll-mt-24"><div className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><p className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-blue-400">Visão geral</p><h1 className="text-2xl font-semibold tracking-tight text-white sm:text-[28px]">Olá, {displayName}</h1><p className="mt-1.5 text-sm text-slate-500">Acompanhe as áreas permitidas para você.</p></div>{permissions.includes('*') && <button className="flex w-fit items-center gap-2 rounded-lg bg-blue-500 px-3.5 py-2.5 text-xs font-semibold text-white shadow-lg shadow-blue-500/15 transition-colors hover:bg-blue-400"><Plus className="size-4" />Adicionar registro</button>}</div>
+        <main className="workspace-main mx-auto w-full max-w-[1500px] overflow-x-hidden px-3 py-5 sm:px-7 sm:py-7 lg:px-9">{page ?? <>{activeSection === 'Dashboard' &&         <div id="dashboard-overview" className="scroll-mt-24"><div className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><p className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-blue-400">Visão geral</p><h1 className="text-2xl font-semibold tracking-tight text-white sm:text-[28px]">Olá, {displayName}</h1><p className="mt-1.5 text-sm text-slate-500">Acompanhe as áreas permitidas para você.</p></div>{permissions.includes('*') && <button className="flex w-fit items-center gap-2 rounded-lg bg-blue-500 px-3.5 py-2.5 text-xs font-semibold text-white shadow-lg shadow-blue-500/15 transition-colors hover:bg-blue-400"><Plus className="size-4" />Adicionar registro</button>}</div>
           <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">{metrics.filter((metric) => {
             const metricPermission: Record<string, string> = {
               'Leads ativos': 'leads:view', 'Clientes ativos': 'clients:view', 'Projetos em andamento': 'projects:view',

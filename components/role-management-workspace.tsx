@@ -1,7 +1,7 @@
 'use client'
 
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { Eye, Loader2, Pencil, Plus, Save, Search, Shield, Trash2, Users, X } from 'lucide-react'
+import { ChevronDown, Eye, Loader2, Pencil, Plus, Save, Search, Shield, Trash2, Users, X } from 'lucide-react'
 
 type Permission = { id: string; module_name: string; action_name: string }
 type Role = {
@@ -22,6 +22,7 @@ type Member = {
   status: string
   created_at: string
 }
+type Override = { module_name: string; action_name: string; effect: 'inherit' | 'allow' | 'deny' }
 
 const moduleGroups: Record<string, string> = {
   dashboard: 'Painel',
@@ -115,6 +116,10 @@ export function RoleManagementWorkspace({ initialView = 'roles' }: { initialView
   const [roleGrants, setRoleGrants] = useState<string[]>([])
   const [deletingRole, setDeletingRole] = useState<Role | null>(null)
   const [reassignRoleId, setReassignRoleId] = useState('')
+  const [permissionOverrides, setPermissionOverrides] = useState<Record<string, Override[]>>({})
+  const [expandedMember, setExpandedMember] = useState<string | null>(null)
+  const [expandedPermissionGroups, setExpandedPermissionGroups] = useState<string[]>([])
+  const [expandedRolePermissionGroups, setExpandedRolePermissionGroups] = useState<string[]>([])
 
   async function load() {
     setLoading(true)
@@ -147,6 +152,15 @@ export function RoleManagementWorkspace({ initialView = 'roles' }: { initialView
   }, [initialView])
 
   const role = roles.find((item) => item.id === selectedRole)
+  const uniqueMembers = useMemo(() => {
+    const seen = new Set<string>()
+    return members.filter((member) => {
+      const key = member.user_id ?? member.email.trim().toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }, [members])
   useEffect(() => {
     if (!role) return
     setRoleName(role.name)
@@ -280,6 +294,21 @@ export function RoleManagementWorkspace({ initialView = 'roles' }: { initialView
     }
   }
 
+  async function loadMemberOverrides(memberId: string) {
+    try {
+      const result = await api<{ overrides: Array<{ effect: Override['effect']; access_permissions: { module_name: string; action_name: string } | { module_name: string; action_name: string }[] }> }>(`/api/admin/rbac/users/${memberId}/permissions`)
+      setPermissionOverrides((current) => ({ ...current, [memberId]: result.overrides.map((item) => { const permission = Array.isArray(item.access_permissions) ? item.access_permissions[0] : item.access_permissions; return { module_name: permission.module_name, action_name: permission.action_name, effect: item.effect } }) }))
+    } catch (loadError) { setError(loadError instanceof Error ? loadError.message : 'Não foi possível carregar as exceções.') }
+  }
+
+  async function updateMemberOverride(memberId: string, module: string, action: string, effect: Override['effect']) {
+    try {
+      await api(`/api/admin/rbac/users/${memberId}/permissions`, { method: 'PATCH', body: JSON.stringify({ module, action, effect }) })
+      await loadMemberOverrides(memberId)
+      setNotice(effect === 'inherit' ? 'Permissão restaurada ao cargo.' : 'Exceção individual salva.')
+    } catch (saveError) { setError(saveError instanceof Error ? saveError.message : 'Não foi possível salvar a exceção.') }
+  }
+
   async function updateMember(member: Member, patch: { roleName?: string; status?: string }) {
     setError('')
     setNotice('')
@@ -385,10 +414,12 @@ export function RoleManagementWorkspace({ initialView = 'roles' }: { initialView
               {Object.entries(groupedPermissions).map(([group, entries]) => {
                 const modulePermissions = new Map<string, Permission[]>()
                 for (const permission of entries) modulePermissions.set(permission.module_name, [...(modulePermissions.get(permission.module_name) ?? []), permission])
-                return <section key={group} className="rounded-lg border border-white/[0.06]">
-                  <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-2.5"><h3 className="text-xs font-semibold uppercase tracking-wide text-blue-300">{group}</h3><button type="button" disabled={roleName.toLowerCase() === 'admin'} onClick={() => toggleModulePermissions(group, entries)} className="rounded-md border border-blue-400/20 px-2 py-1 text-[10px] font-medium text-blue-200 hover:bg-blue-400/10 disabled:cursor-not-allowed disabled:opacity-50">Liberar setor</button></div>
-                  <div className="divide-y divide-white/[0.04]">{[...modulePermissions].map(([module, actions]) => { const moduleKeys = actions.map((permission) => `${permission.module_name}:${permission.action_name}`); const selectedCount = moduleKeys.filter((key) => roleName.toLowerCase() === 'admin' || roleGrants.includes(key)).length; return <div key={module} className="grid gap-3 px-4 py-3 md:grid-cols-[190px_1fr]">
-                    <div><p className="text-xs font-medium text-slate-300">{moduleLabels[module] ?? module}</p><p className="mt-1 text-[10px] text-slate-600">{selectedCount}/{actions.length} liberadas</p></div>
+                const isOpen = expandedRolePermissionGroups.includes(group)
+                const selectedCount = entries.filter((permission) => roleName.toLowerCase() === 'admin' || roleGrants.includes(`${permission.module_name}:${permission.action_name}`)).length
+                return <section key={group} className="overflow-hidden rounded-lg border border-white/[0.06]">
+                  <div className="flex items-center justify-between gap-3 px-4 py-2.5"><button type="button" aria-expanded={isOpen} onClick={() => setExpandedRolePermissionGroups((current) => isOpen ? current.filter((item) => item !== group) : [...current, group])} className="flex min-w-0 items-center gap-2 text-left"><ChevronDown className={`size-4 shrink-0 text-blue-300 transition-transform ${isOpen ? 'rotate-180' : ''}`} /><span className="text-xs font-semibold uppercase tracking-wide text-blue-300">{group}</span><span className="text-[10px] text-slate-600">{selectedCount}/{entries.length}</span></button><button type="button" disabled={roleName.toLowerCase() === 'admin'} onClick={() => toggleModulePermissions(group, entries)} className="rounded-md border border-blue-400/20 px-2 py-1 text-[10px] font-medium text-blue-200 hover:bg-blue-400/10 disabled:cursor-not-allowed disabled:opacity-50">Liberar setor</button></div>
+                  {isOpen && <div className="divide-y divide-white/[0.04] border-t border-white/[0.06]">{[...modulePermissions].map(([module, actions]) => { const moduleKeys = actions.map((permission) => `${permission.module_name}:${permission.action_name}`); const moduleSelectedCount = moduleKeys.filter((key) => roleName.toLowerCase() === 'admin' || roleGrants.includes(key)).length; return <div key={module} className="grid gap-3 px-4 py-3 md:grid-cols-[190px_1fr]">
+                    <div><p className="text-xs font-medium text-slate-300">{moduleLabels[module] ?? module}</p><p className="mt-1 text-[10px] text-slate-600">{moduleSelectedCount}/{actions.length} liberadas</p></div>
                     <div className="grid gap-2 sm:grid-cols-2">{actions.map((permission) => {
                       const key = `${permission.module_name}:${permission.action_name}`
                       const checked = roleName.toLowerCase() === 'admin' || roleGrants.includes(key)
@@ -398,7 +429,7 @@ export function RoleManagementWorkspace({ initialView = 'roles' }: { initialView
                         <PermissionSwitch checked={checked} disabled={roleName.toLowerCase() === 'admin'} label={`${checked ? 'Bloquear' : 'Liberar'} ${actionLabel} em ${moduleLabels[module] ?? module}`} onChange={(value) => togglePermission(permission, value)} />
                       </div>
                     })}</div>
-                  </div>})}</div>
+                  </div>})}</div>}
                 </section>
               })}
             </div>
@@ -422,14 +453,14 @@ export function RoleManagementWorkspace({ initialView = 'roles' }: { initialView
         <div className="overflow-x-auto rounded-xl border border-white/[0.07] bg-[#11161e]">
           <table className="w-full min-w-[820px] text-left text-sm">
             <thead className="border-b border-white/[0.07] text-[11px] uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">Membro</th><th className="px-4 py-3">Cargo</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Criado em</th><th className="px-4 py-3">Ações</th></tr></thead>
-            <tbody className="divide-y divide-white/[0.04]">{members.map((member) => {
+            <tbody className="divide-y divide-white/[0.04]">{uniqueMembers.map((member) => {
               const self = member.user_id === currentUserId
               return <tr key={member.id}>
                 <td className="px-4 py-3"><p className="text-xs font-medium text-slate-200">{member.full_name}{self ? ' (você)' : ''}</p><p className="mt-1 text-[11px] text-slate-500">{member.email}</p></td>
                 <td className="px-4 py-3"><select aria-label={`Cargo de ${member.full_name}`} disabled={self} value={member.role_name} onChange={(event) => void updateMember(member, { roleName: event.target.value })} className="rounded-lg border border-white/[0.08] bg-[#0d1118] px-2 py-2 text-xs text-slate-200 disabled:opacity-50">{roles.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></td>
-                <td className="px-4 py-3"><select aria-label={`Status de ${member.full_name}`} disabled={self} value={member.status.replace(/['"]/g, '').trim().toLowerCase() === 'ativo' || member.status.toLowerCase() === 'active' ? 'Ativo' : 'Inativo'} onChange={(event) => void updateMember(member, { status: event.target.value })} className="rounded-lg border border-white/[0.08] bg-[#0d1118] px-2 py-2 text-xs text-slate-200 disabled:opacity-50"><option value="Ativo">Ativo</option><option value="Inativo">Inativo</option></select></td>
+                <td className="px-4 py-3"><select aria-label={`Status de ${member.full_name}`} disabled={self} value={member.status.replace(/[\'"]/g, '').trim().toLowerCase() === 'ativo' || member.status.toLowerCase() === 'active' ? 'Ativo' : 'Inativo'} onChange={(event) => void updateMember(member, { status: event.target.value })} className="rounded-lg border border-white/[0.08] bg-[#0d1118] px-2 py-2 text-xs text-slate-200 disabled:opacity-50"><option value="Ativo">Ativo</option><option value="Inativo">Inativo</option></select></td>
                 <td className="px-4 py-3 text-xs text-slate-500">{new Date(member.created_at).toLocaleDateString('pt-BR')}</td>
-                <td className="px-4 py-3"><div className="flex gap-1.5"><button type="button" onClick={() => setMemberDetails(member)} className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] px-2.5 py-2 text-xs text-slate-300 hover:bg-white/[0.04]"><Eye className="size-3.5" />Detalhes</button><button type="button" disabled={self} onClick={() => { setEditingMember(member); setMemberDetails(null) }} className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] px-2.5 py-2 text-xs text-slate-300 hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-40"><Pencil className="size-3.5" />Editar</button></div></td>
+                <td className="px-4 py-3"><div className="flex gap-1.5"><button type="button" onClick={() => { setMemberDetails(member); setExpandedMember(member.id); setExpandedPermissionGroups([]); void loadMemberOverrides(member.id) }} className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] px-2.5 py-2 text-xs text-slate-300 hover:bg-white/[0.04]"><Eye className="size-3.5" />Detalhes</button><button type="button" disabled={self} onClick={() => { setEditingMember(member); setMemberDetails(null) }} className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] px-2.5 py-2 text-xs text-slate-300 hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-40"><Pencil className="size-3.5" />Editar</button></div></td>
               </tr>
             })}</tbody>
           </table>
@@ -446,6 +477,7 @@ export function RoleManagementWorkspace({ initialView = 'roles' }: { initialView
             <div><dt className="text-xs text-slate-500">Status</dt><dd className="mt-1 text-slate-200">{memberDetails.status}</dd></div>
             <div><dt className="text-xs text-slate-500">Criado em</dt><dd className="mt-1 text-slate-200">{new Date(memberDetails.created_at).toLocaleDateString('pt-BR')}</dd></div>
           </dl>
+          {expandedMember === memberDetails.id && <div className="mt-6 border-t border-white/[0.06] pt-4"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold text-slate-200">Exceções individuais</p><p className="mt-1 text-[11px] text-slate-500">Herdar remove a exceção e usa o resultado do cargo.</p></div><span className="rounded-full border border-blue-400/20 bg-blue-400/10 px-2 py-1 text-[10px] text-blue-200">{permissionOverrides[memberDetails.id]?.length ?? 0} personalizadas</span></div><div className="mt-4 max-h-[52vh] space-y-2 overflow-y-auto pr-1">{Object.entries(permissions.reduce<Record<string, Permission[]>>((groups, permission) => { const group = moduleGroups[permission.module_name] ?? 'Outros'; groups[group] = [...(groups[group] ?? []), permission]; return groups }, {})).map(([group, groupPermissions]) => { const isOpen = expandedPermissionGroups.includes(group); const customized = groupPermissions.filter((permission) => permissionOverrides[memberDetails.id]?.some((item) => item.module_name === permission.module_name && item.action_name === permission.action_name)).length; return <section key={group} className="overflow-hidden rounded-lg border border-white/[0.07] bg-white/[0.015]"><button type="button" aria-expanded={isOpen} onClick={() => setExpandedPermissionGroups((current) => isOpen ? current.filter((item) => item !== group) : [...current, group])} className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left hover:bg-white/[0.03]"><span className="flex items-center gap-2 text-xs font-semibold text-slate-200"><ChevronDown className={`size-4 text-blue-300 transition-transform ${isOpen ? 'rotate-180' : ''}`} />{group}</span><span className="text-[10px] text-slate-500">{customized ? `${customized} personalizada(s)` : `${groupPermissions.length} permissões`}</span></button>{isOpen && <div className="divide-y divide-white/[0.05] border-t border-white/[0.06]">{groupPermissions.map((permission) => { const override = permissionOverrides[memberDetails.id]?.find((item) => item.module_name === permission.module_name && item.action_name === permission.action_name); const inherited = roles.find((item) => item.name.trim().toLowerCase() === memberDetails.role_name.trim().toLowerCase())?.permissions.includes(`${permission.module_name}:${permission.action_name}`) ?? false; return <div key={permission.id} className="flex flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs text-slate-300">{moduleLabels[permission.module_name] ?? permission.module_name} <span className="text-slate-600">·</span> {actionLabels[permission.action_name] ?? permission.action_name}</p><p className="mt-1 text-[10px] text-slate-500">{override ? 'Decisão personalizada' : `Herdada do cargo: ${inherited ? 'Permitido' : 'Negado'}`}</p></div><select aria-label={`Estado de ${moduleLabels[permission.module_name] ?? permission.module_name} ${actionLabels[permission.action_name] ?? permission.action_name}`} value={override?.effect ?? 'inherit'} onChange={(event) => void updateMemberOverride(memberDetails.id, permission.module_name, permission.action_name, event.target.value as Override['effect'])} className="rounded-lg border border-white/[0.08] bg-[#0d1118] px-2 py-1.5 text-[11px] text-slate-200"><option value="inherit">Herdar</option><option value="allow">Permitido</option><option value="deny">Negado</option></select></div>})}</div>}</section>})}</div></div>}
           <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setMemberDetails(null)} className="rounded-lg px-3 py-2 text-xs text-slate-300">Fechar</button><button type="button" disabled={memberDetails.user_id === currentUserId} onClick={() => { setEditingMember(memberDetails); setMemberDetails(null) }} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-500 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"><Pencil className="size-3.5" />Editar</button></div>
         </section>
       </div>}

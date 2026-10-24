@@ -21,15 +21,18 @@ type License = {
   system_id: string
   status: string
   expires_at: string | null
+  allowed_domain: string | null
   created_at: string
   plan_id: string | null
   contract_id: string | null
   modules: Module[]
 }
 type LicenseData = { clients: Client[]; systems: System[]; licenses: License[] }
+type MiddlewareData = { middleware: string; routes: Array<{ routePattern: string; moduleCode: string; blockedPath: string }>; warnings: string[]; readyForProduction: boolean }
 
 const inputClass = 'field rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-sm text-slate-200 outline-none placeholder:text-slate-600 focus:border-blue-400/60'
 const statusNames: Record<string, string> = { active: 'Ativa', suspended: 'Suspensa', revoked: 'Revogada' }
+const defaultLicenseSiteUrl = 'https://gestao-de-software-house.vercel.app'
 
 function licenseStatusLabel(license: License) {
   if (license.status === 'active' && license.expires_at && new Date(license.expires_at).getTime() < Date.now()) return 'Expirada'
@@ -58,9 +61,12 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [newLicenseKey, setNewLicenseKey] = useState('')
+  const [integrationToken, setIntegrationToken] = useState('')
   const [selectedClient, setSelectedClient] = useState('')
   const [selectedSystem, setSelectedSystem] = useState('')
-  const [scriptOrigin, setScriptOrigin] = useState('')
+  const [scriptOrigin, setScriptOrigin] = useState(defaultLicenseSiteUrl)
+  const [middlewareByLicense, setMiddlewareByLicense] = useState<Record<string, MiddlewareData>>({})
+  const [middlewareLoadingId, setMiddlewareLoadingId] = useState('')
 
   async function load() {
     setLoading(true)
@@ -76,7 +82,6 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
 
   useEffect(() => {
     void load()
-    setScriptOrigin(window.location.origin)
   }, [])
 
   const visibleSystems = useMemo(
@@ -108,11 +113,14 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
             clientId: form.get('clientId'),
             systemId: form.get('systemId'),
             expiresAt: form.get('expiresAt') || null,
+            allowedDomain: form.get('allowedDomain') || null,
           }),
         },
       )
       setNewLicenseKey(result.licenseKey)
-      setNotice(result.warning || 'Licença criada. Copie e guarde a chave: ela não será exibida novamente.')
+      const integration = await requestJson<{ integrationToken: string }>(`/api/admin/licenses/${result.license.id}/integration`, { method: 'POST' })
+      setIntegrationToken(integration.integrationToken)
+      setNotice(result.warning || 'Licença e integração preparadas. Guarde os dois segredos: eles não serão exibidos novamente.')
       setShowForm(false)
       await load()
     } catch (saveError) {
@@ -199,6 +207,42 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
     }
   }
 
+  async function loadMiddleware(licenseId: string) {
+    setMiddlewareLoadingId(licenseId)
+    setError('')
+    try {
+      const result = await requestJson<MiddlewareData>(`/api/admin/licenses/${licenseId}/middleware`)
+      setMiddlewareByLicense((current) => ({ ...current, [licenseId]: result }))
+    } catch (middlewareError) {
+      setError(middlewareError instanceof Error ? middlewareError.message : 'Não foi possível gerar o middleware.')
+    } finally {
+      setMiddlewareLoadingId('')
+    }
+  }
+
+  async function copyMiddleware(licenseId: string) {
+    const middleware = middlewareByLicense[licenseId]?.middleware
+    if (!middleware) return
+    try {
+      await navigator.clipboard.writeText(middleware)
+      setNotice('Middleware copiado para a área de transferência.')
+    } catch {
+      setError('Não foi possível copiar automaticamente o middleware.')
+    }
+  }
+
+  function downloadMiddleware(licenseId: string) {
+    const middleware = middlewareByLicense[licenseId]?.middleware
+    if (!middleware) return
+    const blob = new Blob([middleware], { type: 'text/typescript;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'middleware.ts'
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   return <section className="space-y-6">
     <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
       <div>
@@ -220,8 +264,9 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-blue-100">Chave de licença — exibida uma única vez</p>
           <code className="mt-2 block break-all rounded-lg bg-black/20 p-3 text-xs text-slate-200">{newLicenseKey}</code>
-          <p className="mt-4 text-xs font-medium text-blue-100">Script para entregar ao cliente</p>
-          <code className="mt-2 block break-all rounded-lg bg-black/20 p-3 text-xs text-slate-300">{`<script src="${scriptOrigin}/client-script.js?token=${newLicenseKey}" defer></script>`}</code>
+          {integrationToken && <><p className="mt-4 text-xs font-medium text-blue-100">Token server-to-server — exibido uma única vez</p><code className="mt-2 block break-all rounded-lg bg-black/20 p-3 text-xs text-amber-200">{integrationToken}</code><p className="mt-1 text-[11px] text-slate-500">Configure como CODEXA_LICENSE_KEY apenas no servidor do cliente. Nunca coloque este token no navegador.</p></>}
+          <p className="mt-4 text-xs font-medium text-blue-100">Script visual opcional para entregar ao cliente</p>
+          <code className="mt-2 block break-all rounded-lg bg-black/20 p-3 text-xs text-slate-300">{`<script src="${scriptOrigin}/client-script.js?token=${newLicenseKey}&api=${encodeURIComponent(`${scriptOrigin}/api/licenses/validate`)}" defer></script>`}</code>
           <button onClick={() => void copyKey()} className="mt-3 flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-200 hover:bg-white/5"><Copy className="size-3.5" />Copiar chave</button>
         </div>
         <button onClick={() => setNewLicenseKey('')} aria-label="Ocultar chave" className="rounded p-1 text-slate-500 hover:text-white"><X className="size-4" /></button>
@@ -229,8 +274,12 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
     </div>}
 
     {showForm && <form onSubmit={(event) => void createLicense(event)} className="rounded-xl border border-white/[0.07] bg-[#11161e] p-5">
-      <div className="mb-4"><h2 className="text-sm font-semibold text-white">Emitir licença</h2><p className="mt-1 text-xs text-slate-500">A chave é gerada aleatoriamente e armazenada somente como hash.</p></div>
+      <div className="mb-4"><h2 className="text-sm font-semibold text-white">Emitir licença</h2><p className="mt-1 text-xs text-slate-500">A chave é gerada aleatoriamente e armazenada somente como hash. Informe a URL pública que hospedará o script de validação.</p></div>
       <div className="grid gap-4 sm:grid-cols-3">
+        <label className="text-xs text-slate-500">URL pública do site
+          <input name="siteUrl" type="url" value={scriptOrigin} onChange={(event) => setScriptOrigin(event.target.value.replace(/\/$/, ''))} placeholder={defaultLicenseSiteUrl} required className={`${inputClass} mt-2 w-full`} />
+          <span className="mt-1 block text-[11px] text-slate-600">Será usada no script entregue ao cliente. Padrão: {defaultLicenseSiteUrl}</span>
+        </label>
         <label className="text-xs text-slate-500">Cliente
           <select required name="clientId" value={selectedClient} onChange={(event) => { setSelectedClient(event.target.value); setSelectedSystem('') }} className={`${inputClass} mt-2 w-full`}>
             <option value="">Selecione o cliente</option>{data.clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
@@ -240,6 +289,10 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
           <select required name="systemId" value={selectedSystem} onChange={(event) => setSelectedSystem(event.target.value)} className={`${inputClass} mt-2 w-full`}>
             <option value="">Selecione o sistema</option>{visibleSystems.map((system) => <option key={system.id} value={system.id}>{system.name}</option>)}
           </select>
+        </label>
+        <label className="text-xs text-slate-500">Domínio autorizado (opcional)
+          <input name="allowedDomain" type="text" placeholder="cliente.com.br" className={`${inputClass} mt-2 w-full`} />
+          <span className="mt-1 block text-[11px] text-slate-600">Aceita o domínio e seus subdomínios. Não inclua protocolo ou caminho.</span>
         </label>
         <label className="text-xs text-slate-500">Válida até (opcional)
           <input name="expiresAt" type="date" className={`${inputClass} mt-2 w-full`} />
@@ -261,7 +314,7 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
         const system = data.systems.find((item) => item.id === license.system_id)?.name ?? 'Sistema não encontrado'
         return <article key={license.id} className="rounded-xl border border-white/[0.07] bg-[#11161e]">
           <div className="grid gap-3 border-b border-white/[0.06] px-4 py-3 lg:grid-cols-[1fr_130px_165px_auto] lg:items-center">
-            <div><p className="text-sm font-medium text-white">{client}</p><p className="mt-1 text-xs text-slate-500">{system}</p><p className="mt-2 text-[11px] text-slate-600">Criada em {new Date(license.created_at).toLocaleDateString('pt-BR')}</p></div>
+            <div><p className="text-sm font-medium text-white">{client}</p><p className="mt-1 text-xs text-slate-500">{system}</p>{license.allowed_domain && <p className="mt-1 text-[11px] text-blue-300/70">Domínio: {license.allowed_domain}</p>}<p className="mt-2 text-[11px] text-slate-600">Criada em {new Date(license.created_at).toLocaleDateString('pt-BR')}</p></div>
             {canManage ? <label className="text-[11px] text-slate-500">Status
               <span className={`mt-1.5 block text-xs font-medium ${licenseStatusLabel(license) === 'Ativa' ? 'text-emerald-200' : 'text-amber-100'}`}>{licenseStatusLabel(license)}</span>
               <select value={license.status} onChange={(event) => void updateLicense(license.id, { status: event.target.value })} className={`${inputClass} mt-1.5 w-full text-xs`}>
@@ -288,6 +341,20 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
                 <label className="flex items-center gap-1.5 text-[10px] text-slate-500"><input type="checkbox" checked={module.is_enabled} disabled={!canManage || !module.is_contracted || !isModuleAvailable(module.availability_status)} onChange={(event) => void updateModule(license.id, module, module.is_contracted, event.target.checked)} className="accent-emerald-500 disabled:opacity-40" />Liberado</label>
               </div>
             </div>)}</div> : <p className="rounded-lg border border-dashed border-white/[0.08] p-5 text-center text-xs text-slate-600">Nenhum módulo cadastrado para este sistema.</p>}
+            <div className="mt-6 rounded-lg border border-blue-400/15 bg-blue-400/[0.04] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div><h3 className="text-xs font-semibold text-blue-100">Middleware para o projeto do cliente</h3><p className="mt-1 text-[11px] text-slate-500">Gere o arquivo e copie para <code>middleware.ts</code> na raiz do projeto Next.js do cliente.</p></div>
+                <button type="button" onClick={() => void loadMiddleware(license.id)} disabled={middlewareLoadingId === license.id} className="rounded-lg bg-blue-500 px-3 py-2 text-[11px] font-semibold text-white hover:bg-blue-400 disabled:opacity-50">{middlewareLoadingId === license.id ? 'Gerando...' : middlewareByLicense[license.id] ? 'Regenerar arquivo' : 'Gerar middleware'}</button>
+              </div>
+              {middlewareByLicense[license.id] && <>
+                {middlewareByLicense[license.id].warnings.map((warning) => <p key={warning} role="alert" className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[11px] text-amber-200">{warning}</p>)}
+                <div className="mt-3 rounded-lg border border-white/[0.06] bg-black/20 p-3 text-[11px] text-slate-400">
+                  <p className="font-medium text-slate-200">Rotas protegidas: {middlewareByLicense[license.id].routes.length}</p>
+                  {middlewareByLicense[license.id].routes.length ? <ul className="mt-2 flex flex-col gap-1">{middlewareByLicense[license.id].routes.map((route) => <li key={`${route.routePattern}-${route.moduleCode}`}>{route.routePattern} → {route.moduleCode}</li>)}</ul> : <p className="mt-1">Configure as associações de rota e módulo antes de usar este arquivo em produção.</p>}
+                  <p className="mt-2">API central: https://gestao-de-software-house.vercel.app/api/licenses/validate · Variável necessária: CODEXA_LICENSE_KEY</p>
+                </div>
+                <textarea readOnly value={middlewareByLicense[license.id].middleware} aria-label="Código do middleware" className="mt-3 min-h-64 w-full rounded-lg border border-white/[0.08] bg-black/30 p-3 font-mono text-[10px] leading-relaxed text-slate-300 outline-none" /><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => void copyMiddleware(license.id)} className="rounded-lg border border-white/10 px-3 py-2 text-[11px] text-slate-200 hover:bg-white/5">Copiar código</button><button type="button" onClick={() => downloadMiddleware(license.id)} className="rounded-lg border border-white/10 px-3 py-2 text-[11px] text-slate-200 hover:bg-white/5">Baixar middleware.ts</button></div></>}
+            </div>
           </div>}
         </article>
       })}</div> : <div className="rounded-xl border border-white/[0.07] bg-[#11161e] p-10 text-center"><Check className="mx-auto size-6 text-slate-600" /><p className="mt-3 text-sm text-slate-400">Nenhuma licença encontrada</p><p className="mt-1 text-xs text-slate-600">Emita uma licença para começar a controlar o acesso aos módulos.</p></div>}

@@ -6,6 +6,7 @@ type LicenseInput = {
   clientId?: unknown
   systemId?: unknown
   expiresAt?: unknown
+  allowedDomain?: unknown
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -34,7 +35,7 @@ export async function GET() {
       clientsQuery,
       actor.supabase.from('systems').select('id,name,client_id').order('name').limit(1000),
       actor.supabase.from('system_modules').select('id,system_id,name,internal_code,availability_status').order('name').limit(1000),
-      actor.supabase.from('licenses').select('id,client_id,system_id,status,expires_at,created_at,plan_id,contract_id').order('created_at', { ascending: false }).limit(1000),
+      actor.supabase.from('licenses').select('id,client_id,system_id,status,expires_at,allowed_domain,created_at,plan_id,contract_id').order('created_at', { ascending: false }).limit(1000),
       actor.supabase.from('license_module_entitlements').select('license_id,system_module_id,is_contracted,is_enabled'),
     ])
     const error = clientsResult.error ?? systemsResult.error ?? modulesResult.error ?? licensesResult.error ?? entitlementsResult.error
@@ -97,6 +98,8 @@ export async function POST(request: Request) {
   }
   const expiresAt = expirationDate(body.expiresAt)
   if (expiresAt === undefined) return NextResponse.json({ error: 'Data de expiração inválida.' }, { status: 400 })
+  const allowedDomain = typeof body.allowedDomain === 'string' && body.allowedDomain.trim() ? body.allowedDomain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '') : null
+  if (allowedDomain && (allowedDomain.includes('/') || allowedDomain.includes(':') || /\s/.test(allowedDomain))) return NextResponse.json({ error: 'Domínio autorizado inválido.' }, { status: 400 })
 
   try {
     const { actorId, supabase } = await requireWorkspacePermission('licenses', 'manage_licenses')
@@ -122,10 +125,11 @@ export async function POST(request: Request) {
         status: 'active',
         is_active: true,
         expires_at: expiresAt,
+        allowed_domain: allowedDomain,
         license_key: null,
         license_key_hash: licenseKeyHash,
       })
-      .select('id,client_id,system_id,status,expires_at,created_at,plan_id,contract_id')
+      .select('id,client_id,system_id,status,expires_at,allowed_domain,created_at,plan_id,contract_id')
       .single()
     if (insertError || !license) {
       if (insertError) return responseError(insertError)

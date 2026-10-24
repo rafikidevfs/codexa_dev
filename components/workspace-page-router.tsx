@@ -24,6 +24,7 @@ export function WorkspacePageRouter({ module, permissions, profileName }: { modu
   if (module === 'propostas' || module === 'contratos') return <CommercialWorkspace initialTab={module === 'contratos' ? 'contracts' : 'proposals'} permissions={permissions} />
   if (module === 'projetos' || module === 'tarefas' || module === 'solicitacoes' || module === 'suporte') return <OperationsWorkspace permissions={permissions} initialModule={module === 'tarefas' ? 'projects' : module === 'solicitacoes' ? 'change_requests' : module === 'suporte' ? 'support_tickets' : 'projects'} />
   if (module === 'sistemas' || module === 'modulos') return <CatalogWorkspace initialTab={module === 'modulos' ? 'modules' : 'systems'} />
+  if (module === 'planos') return <AdminWorkspace section="Planos" permissions={permissions} />
   if (module === 'licencas') return <LicenseWorkspace permissions={permissions} />
   if (module === 'relatorios') return <ReportsWorkspace permissions={permissions} />
   if (module === 'papeis-e-permissoes') return <RoleManagementWorkspace />

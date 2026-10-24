@@ -5,11 +5,15 @@ import { createClient } from '@/lib/supabase/client'
 import { EntityAttachments } from '@/components/entity-attachments'
 import { uploadContractAttachment } from '@/lib/contract-attachments'
 import { BriefcaseBusiness, Eye, FileText, Loader2, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
+import { ListingControls } from '@/components/listing-controls'
 
 type Tab = 'proposals' | 'contracts'
 type Contract = { id: string; contract_number: string; title: string; status: string; contracted_value: number; ends_at: string | null; client_id: string | null; proposal_id: string | null; contract_type: string | null; description: string | null; starts_at: string | null; observations: string | null }
 type Proposal = { id: string; proposal_number: string; title: string; status: string; total: number; valid_until: string | null; client_id: string | null; lead_id: string | null; description: string | null }
 type Client = { id: string; legal_name: string; trade_name: string | null }
+
+const proposalStatuses = ['Rascunho', 'Enviada', 'Em negociação', 'Aprovada', 'Rejeitada', 'Cancelada', 'Expirada'] as const
+const proposalStatusSet = new Set<string>(proposalStatuses)
 
 const inputClass = 'w-full rounded-lg border border-white/10 bg-[#151b24] p-3 text-sm text-white'
 const currency = (value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0))
@@ -20,6 +24,8 @@ export function CommercialWorkspace({ initialTab = 'proposals', permissions = []
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [clients, setClients] = useState<Client[]>([])
   const [query, setQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [page, setPage] = useState(0)
   const [modal, setModal] = useState(false)
   const [record, setRecord] = useState<Contract | Proposal | null>(null)
   const [editingRecord, setEditingRecord] = useState(false)
@@ -47,9 +53,11 @@ export function CommercialWorkspace({ initialTab = 'proposals', permissions = []
   const rows = useMemo(() => {
     const term = query.toLowerCase()
     return tab === 'contracts'
-      ? contracts.filter((item) => `${item.contract_number} ${item.title} ${item.status}`.toLowerCase().includes(term))
-      : proposals.filter((item) => `${item.proposal_number} ${item.title} ${item.status}`.toLowerCase().includes(term))
-  }, [tab, contracts, proposals, query])
+      ? contracts.filter((item) => `${item.contract_number} ${item.title} ${item.status}`.toLowerCase().includes(term) && (!statusFilter || item.status === statusFilter))
+      : proposals.filter((item) => `${item.proposal_number} ${item.title} ${item.status}`.toLowerCase().includes(term) && (!statusFilter || item.status === statusFilter))
+  }, [tab, contracts, proposals, query, statusFilter])
+  const pageRows = rows.slice(page * 10, page * 10 + 10)
+  const statusOptions = [...new Set(rows.map((item) => item.status).filter(Boolean))]
   const canCreate = permissions.includes('*') || permissions.includes(`${tab}:create`)
   const canUpdate = permissions.includes('*') || permissions.includes(`${tab}:update`)
   const canDelete = permissions.includes('*') || permissions.includes(`${tab}:delete`)
@@ -69,6 +77,8 @@ export function CommercialWorkspace({ initialTab = 'proposals', permissions = []
         const unit = Number(data.unit_value || 0)
         const quantity = Number(data.quantity || 1)
         const discount = Number(data.discount || 0)
+        const status = String(data.status || 'Rascunho')
+        if (!proposalStatusSet.has(status)) throw new Error('Status de proposta inválido.')
         const { error: insertError } = await client.from('proposals').insert({
           proposal_number: `PROP-${Date.now()}`,
           title: data.title,
@@ -79,6 +89,7 @@ export function CommercialWorkspace({ initialTab = 'proposals', permissions = []
           total: Math.max(0, unit * quantity - discount),
           valid_until: data.valid_until || null,
           client_id: data.client_id || null,
+          status,
         })
         if (insertError) throw insertError
       } else {
@@ -126,13 +137,19 @@ export function CommercialWorkspace({ initialTab = 'proposals', permissions = []
     setSaving(true)
     setError('')
     const data = Object.fromEntries(new FormData(event.currentTarget))
+    const proposalStatus = String(data.status || '')
+    if (tab === 'proposals' && !proposalStatusSet.has(proposalStatus)) {
+      setError('Selecione um status válido para a proposta.')
+      setSaving(false)
+      return
+    }
     const payload = tab === 'contracts'
       ? { title: data.title, description: data.description || null, contract_type: data.contract_type || 'Prestação de serviços', client_id: data.client_id || null, starts_at: data.starts_at || null, ends_at: data.ends_at || null, contracted_value: Number(data.amount || 0), status: data.status, observations: data.observations || null }
-      : { title: data.title, description: data.description || null, client_id: data.client_id || null, total: Number(data.amount || 0), valid_until: data.valid_until || null, status: data.status }
+      : { title: data.title, description: data.description || null, client_id: data.client_id || null, total: Number(data.amount || 0), valid_until: data.valid_until || null, status: proposalStatus }
     const { error: updateError } = await createClient().from(tab).update(payload).eq('id', record.id)
     if (updateError) {
       console.error('Commercial record update failed:', updateError.message)
-      setError(`Não foi possível salvar as alterações: ${updateError.message}`)
+      setError(`Não foi possível salvar as alteraç��es: ${updateError.message}`)
     } else {
       setEditingRecord(false)
       setRecord(null)
@@ -161,10 +178,13 @@ export function CommercialWorkspace({ initialTab = 'proposals', permissions = []
         <button disabled={!canCreate} title={canCreate ? undefined : 'Seu cargo não tem permissão para criar neste módulo'} onClick={() => { setError(''); setModal(true) }} className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"><Plus className="mr-1 inline size-3.5" />Novo</button>
       </div>
     </div>
-    <div className="flex gap-2 border-b border-white/[0.07] p-4"><Search className="size-4 text-slate-600" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar..." className="w-full bg-transparent text-sm text-white outline-none" /></div>
+    <div className="flex gap-2 border-b border-white/[0.07] p-4"><Search className="size-4 text-slate-600" /><input value={query} onChange={(event) => { setQuery(event.target.value); setPage(0) }} placeholder="Pesquisar..." className="w-full bg-transparent text-sm text-white outline-none" /></div>
+    <ListingControls total={rows.length} page={page} onPageChange={setPage} hasActiveFilters={Boolean(statusFilter)} onClear={() => { setStatusFilter(''); setPage(0) }}>
+      <label className="text-xs text-slate-400">Status<select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(0) }} className={`${inputClass} mt-1 min-w-44`}><option value="">Todos os status</option>{statusOptions.map((status) => <option key={status}>{status}</option>)}</select></label>
+    </ListingControls>
     {error && <p role="alert" className="m-4 rounded-lg bg-amber-400/10 p-3 text-xs text-amber-300">{error}</p>}
     {loading ? <div className="p-8 text-center text-xs text-slate-500">Carregando...</div> : <div className="divide-y divide-white/[0.06]">
-      {rows.map((row) => <div key={row.id} className="flex items-center gap-3 p-4">
+      {pageRows.map((row) => <div key={row.id} className="flex items-center gap-3 p-4">
         <div className="grid size-9 place-items-center rounded-lg bg-violet-500/10 text-violet-300">{tab === 'contracts' ? <BriefcaseBusiness className="size-4" /> : <FileText className="size-4" />}</div>
         <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-slate-200">{row.title}</p><p className="text-xs text-slate-500">{'contract_number' in row ? row.contract_number : row.proposal_number} · {row.status}</p></div>
         <button onClick={() => { setRecord(row); setEditingRecord(false); setError('') }} aria-label={`Ver detalhes de ${row.title}`} title="Ver detalhes e anexos" className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] px-2.5 py-2 text-xs text-slate-300 hover:bg-white/[0.04]"><Eye className="size-3.5" />Detalhes</button>
@@ -175,7 +195,7 @@ export function CommercialWorkspace({ initialTab = 'proposals', permissions = []
     </div>}
     {modal && <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"><form onSubmit={submit} className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#11161e] p-6">
       <div className="flex items-center justify-between"><h3 className="text-lg font-semibold text-white">Novo {tab === 'contracts' ? 'contrato' : 'proposta'}</h3><button type="button" onClick={() => setModal(false)} aria-label="Fechar"><X className="text-slate-400" /></button></div>
-      <div className="mt-5 grid gap-3"><input name="title" required placeholder="Título" className={inputClass} /><select name="client_id" className={inputClass}><option value="">Cliente</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.trade_name || client.legal_name}</option>)}</select><input name="contracted_value" type="number" step="0.01" placeholder="Valor contratado" className={inputClass} />{tab === 'contracts' && <label className="rounded-lg border border-dashed border-violet-400/30 p-4 text-xs text-slate-400">PDF do contrato<input name="document" type="file" accept="application/pdf,.pdf" className="mt-2 block w-full text-xs" /></label>}<textarea name="description" placeholder="Descrição ou observações" className={`${inputClass} min-h-24`} /></div>
+      <div className="mt-5 grid gap-3"><input name="title" required placeholder="Título" className={inputClass} /><select name="client_id" className={inputClass}><option value="">Cliente</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.trade_name || client.legal_name}</option>)}</select>{tab === 'proposals' && <label className="text-xs text-slate-400">Status<select name="status" defaultValue="Rascunho" className={`${inputClass} mt-1`}>{proposalStatuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></label>}<input name={tab === 'proposals' ? 'unit_value' : 'contracted_value'} type="number" step="0.01" placeholder={tab === 'proposals' ? 'Valor unitário' : 'Valor contratado'} className={inputClass} />{tab === 'contracts' && <label className="rounded-lg border border-dashed border-violet-400/30 p-4 text-xs text-slate-400">PDF do contrato<input name="document" type="file" accept="application/pdf,.pdf" className="mt-2 block w-full text-xs" /></label>}{tab === 'proposals' && <><input name="quantity" type="number" min="1" step="1" defaultValue="1" placeholder="Quantidade" className={inputClass} /><input name="discount" type="number" min="0" step="0.01" defaultValue="0" placeholder="Desconto" className={inputClass} /><input name="item_description" required placeholder="Descrição do item" className={inputClass} /></>}<textarea name="description" placeholder="Descrição ou observações" className={`${inputClass} min-h-24`} /></div>
       {error && <p role="alert" className="mt-4 rounded-lg bg-amber-400/10 p-3 text-xs text-amber-300">{error}</p>}<button disabled={saving} className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-violet-500 py-3 text-sm font-semibold text-white">{saving && <Loader2 className="size-4 animate-spin" />}Salvar</button>
     </form></div>}
     {record && <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/70 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setRecord(null) }}>
@@ -184,7 +204,7 @@ export function CommercialWorkspace({ initialTab = 'proposals', permissions = []
         {editingRecord ? <form onSubmit={(event) => void saveRecord(event)} className="mt-5 grid gap-3 sm:grid-cols-2">
           <label className="text-xs text-slate-400 sm:col-span-2">Título<input name="title" required defaultValue={record.title} className={`${inputClass} mt-1`} /></label>
           <label className="text-xs text-slate-400">Cliente<select name="client_id" defaultValue={record.client_id || ''} className={`${inputClass} mt-1`}><option value="">Sem cliente</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.trade_name || client.legal_name}</option>)}</select></label>
-          <label className="text-xs text-slate-400">Status<input name="status" required defaultValue={record.status} className={`${inputClass} mt-1`} /></label>
+          <label className="text-xs text-slate-400">Status{'contract_number' in record ? <input name="status" required defaultValue={record.status} className={`${inputClass} mt-1`} /> : <select name="status" required defaultValue={record.status} className={`${inputClass} mt-1`}>{!proposalStatusSet.has(record.status) && <option value={record.status}>{record.status}</option>}{proposalStatuses.map((status) => <option key={status} value={status}>{status}</option>)}</select>}</label>
           <label className="text-xs text-slate-400">Valor (R$)<input name="amount" type="number" min="0" step="0.01" defaultValue={'contracted_value' in record ? record.contracted_value : record.total} className={`${inputClass} mt-1`} /></label>
           {'contract_number' in record ? <>
             <label className="text-xs text-slate-400">Tipo<input name="contract_type" defaultValue={record.contract_type || ''} className={`${inputClass} mt-1`} /></label>

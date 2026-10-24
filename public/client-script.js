@@ -10,6 +10,8 @@
 
   const apiUrl = source.searchParams.get('api') || `${source.origin}/api/licenses/validate`
   const suspendedMessage = 'Este sistema está temporariamente suspenso. Entre em contato com o suporte.'
+  let lastState = ''
+  let validating = false
 
   function showSuspended() {
     if (document.getElementById('codexa-license-suspended')) return
@@ -29,8 +31,9 @@
       if (module && !module.licensed) element.remove()
     })
     document.querySelectorAll('[data-license-action]').forEach((element) => {
-      const module = byCode.get(element.getAttribute('data-license-action'))
-      if (module && !module.licensed) {
+      const module = byCode.get(element.getAttribute('data-license-module'))
+      const allowed = module?.licensed
+      if (module && !allowed) {
         element.setAttribute('aria-disabled', 'true')
         element.setAttribute('title', 'Este recurso não está disponível na sua licença.')
         element.addEventListener('click', (event) => event.preventDefault(), { capture: true })
@@ -38,8 +41,13 @@
     })
   }
 
+  function currentOriginIsAllowed() {
+    return window.location.protocol === 'http:' || window.location.protocol === 'https:'
+  }
+
   async function validate() {
     try {
+      if (!currentOriginIsAllowed()) return
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },

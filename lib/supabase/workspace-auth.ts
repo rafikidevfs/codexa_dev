@@ -74,6 +74,31 @@ export async function getWorkspaceActor(): Promise<WorkspaceActor> {
 export async function getWorkspacePermissions(actor: WorkspaceActor): Promise<Set<string>> {
   if (normalizeWorkspaceRoleName(actor.roleName) === 'admin') return new Set(['*'])
 
+  const { data: overrides, error: overridesError } = await actor.supabase
+    .from('workspace_member_permission_overrides')
+    .select('effect,access_permissions(module_name,action_name)')
+    .eq('member_id', actor.memberId)
+  if (!overridesError) {
+    const { data: grants, error: grantsError } = await actor.supabase
+      .from('role_permissions')
+      .select('permission_id')
+      .eq('role_id', actor.roleId)
+    if (grantsError) throw new AdminApiError('Não foi possível carregar as permissões.', 503)
+    const ids = (grants ?? []).map((grant) => grant.permission_id)
+    const { data: permissions, error: permissionsError } = ids.length
+      ? await actor.supabase.from('access_permissions').select('module_name,action_name').in('id', ids)
+      : { data: [], error: null }
+    if (permissionsError) throw new AdminApiError('Não foi possível carregar as permissões.', 503)
+    const effective = new Set((permissions ?? []).map((permission) => `${permission.module_name}:${permission.action_name}`))
+    for (const override of overrides ?? []) {
+      const permission = Array.isArray(override.access_permissions) ? override.access_permissions[0] : override.access_permissions
+      const key = permission ? `${permission.module_name}:${permission.action_name}` : ''
+      if (override.effect === 'allow') effective.add(key)
+      if (override.effect === 'deny') effective.delete(key)
+    }
+    return effective
+  }
+
   const { data: grants, error: grantsError } = await actor.supabase
     .from('role_permissions')
     .select('permission_id')
