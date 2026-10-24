@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { AdminApiError, requireWorkspacePermission } from '@/lib/supabase/admin-server'
 import { generateMiddleware } from '@/lib/licensing/middleware-generator'
 
+const CENTRAL_LICENSE_API_URL = 'https://gestao-de-software-house.vercel.app/api/licenses/validate'
+
 function errorResponse(error: unknown) {
   if (error instanceof AdminApiError) return NextResponse.json({ error: error.message }, { status: error.status })
   console.error('Middleware generation failed:', error)
@@ -35,7 +37,16 @@ export async function GET(_request: Request, context: { params: Promise<{ licens
       blockedPath: mapping.blocked_path,
       moduleCode: moduleCodes.get(mapping.system_module_id) ?? '',
     })).filter((route) => route.moduleCode)
-    return NextResponse.json({ routes, middleware: generateMiddleware({ apiUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/licenses/validate`, routes }) })
+    const invalidMappings = (mappings ?? []).filter((mapping) => !moduleCodes.has(mapping.system_module_id))
+    const warnings: string[] = []
+    if (invalidMappings.length) warnings.push(`${invalidMappings.length} rota(s) apontam para módulo inexistente ou não associado ao sistema.`)
+    if (!routes.length) warnings.push('Nenhuma rota configurada. Cadastre ao menos uma rota antes de usar o middleware em produção.')
+    return NextResponse.json({
+      routes,
+      warnings,
+      readyForProduction: routes.length > 0 && invalidMappings.length === 0,
+      middleware: generateMiddleware({ apiUrl: CENTRAL_LICENSE_API_URL, routes }),
+    })
   } catch (error) { return errorResponse(error) }
 }
 

@@ -28,6 +28,7 @@ type License = {
   modules: Module[]
 }
 type LicenseData = { clients: Client[]; systems: System[]; licenses: License[] }
+type MiddlewareData = { middleware: string; routes: Array<{ routePattern: string; moduleCode: string; blockedPath: string }>; warnings: string[]; readyForProduction: boolean }
 
 const inputClass = 'field rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-sm text-slate-200 outline-none placeholder:text-slate-600 focus:border-blue-400/60'
 const statusNames: Record<string, string> = { active: 'Ativa', suspended: 'Suspensa', revoked: 'Revogada' }
@@ -64,7 +65,7 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
   const [selectedClient, setSelectedClient] = useState('')
   const [selectedSystem, setSelectedSystem] = useState('')
   const [scriptOrigin, setScriptOrigin] = useState(defaultLicenseSiteUrl)
-  const [middlewareByLicense, setMiddlewareByLicense] = useState<Record<string, string>>({})
+  const [middlewareByLicense, setMiddlewareByLicense] = useState<Record<string, MiddlewareData>>({})
   const [middlewareLoadingId, setMiddlewareLoadingId] = useState('')
 
   async function load() {
@@ -210,8 +211,8 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
     setMiddlewareLoadingId(licenseId)
     setError('')
     try {
-      const result = await requestJson<{ middleware: string }>(`/api/admin/licenses/${licenseId}/middleware`)
-      setMiddlewareByLicense((current) => ({ ...current, [licenseId]: result.middleware }))
+      const result = await requestJson<MiddlewareData>(`/api/admin/licenses/${licenseId}/middleware`)
+      setMiddlewareByLicense((current) => ({ ...current, [licenseId]: result }))
     } catch (middlewareError) {
       setError(middlewareError instanceof Error ? middlewareError.message : 'Não foi possível gerar o middleware.')
     } finally {
@@ -220,7 +221,7 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
   }
 
   async function copyMiddleware(licenseId: string) {
-    const middleware = middlewareByLicense[licenseId]
+    const middleware = middlewareByLicense[licenseId]?.middleware
     if (!middleware) return
     try {
       await navigator.clipboard.writeText(middleware)
@@ -231,7 +232,7 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
   }
 
   function downloadMiddleware(licenseId: string) {
-    const middleware = middlewareByLicense[licenseId]
+    const middleware = middlewareByLicense[licenseId]?.middleware
     if (!middleware) return
     const blob = new Blob([middleware], { type: 'text/typescript;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -345,7 +346,14 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
                 <div><h3 className="text-xs font-semibold text-blue-100">Middleware para o projeto do cliente</h3><p className="mt-1 text-[11px] text-slate-500">Gere o arquivo e copie para <code>middleware.ts</code> na raiz do projeto Next.js do cliente.</p></div>
                 <button type="button" onClick={() => void loadMiddleware(license.id)} disabled={middlewareLoadingId === license.id} className="rounded-lg bg-blue-500 px-3 py-2 text-[11px] font-semibold text-white hover:bg-blue-400 disabled:opacity-50">{middlewareLoadingId === license.id ? 'Gerando...' : middlewareByLicense[license.id] ? 'Regenerar arquivo' : 'Gerar middleware'}</button>
               </div>
-              {middlewareByLicense[license.id] && <><textarea readOnly value={middlewareByLicense[license.id]} aria-label="Código do middleware" className="mt-3 min-h-64 w-full rounded-lg border border-white/[0.08] bg-black/30 p-3 font-mono text-[10px] leading-relaxed text-slate-300 outline-none" /><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => void copyMiddleware(license.id)} className="rounded-lg border border-white/10 px-3 py-2 text-[11px] text-slate-200 hover:bg-white/5">Copiar código</button><button type="button" onClick={() => downloadMiddleware(license.id)} className="rounded-lg border border-white/10 px-3 py-2 text-[11px] text-slate-200 hover:bg-white/5">Baixar middleware.ts</button></div></>}
+              {middlewareByLicense[license.id] && <>
+                {middlewareByLicense[license.id].warnings.map((warning) => <p key={warning} role="alert" className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[11px] text-amber-200">{warning}</p>)}
+                <div className="mt-3 rounded-lg border border-white/[0.06] bg-black/20 p-3 text-[11px] text-slate-400">
+                  <p className="font-medium text-slate-200">Rotas protegidas: {middlewareByLicense[license.id].routes.length}</p>
+                  {middlewareByLicense[license.id].routes.length ? <ul className="mt-2 flex flex-col gap-1">{middlewareByLicense[license.id].routes.map((route) => <li key={`${route.routePattern}-${route.moduleCode}`}>{route.routePattern} → {route.moduleCode}</li>)}</ul> : <p className="mt-1">Configure as associações de rota e módulo antes de usar este arquivo em produção.</p>}
+                  <p className="mt-2">API central: https://gestao-de-software-house.vercel.app/api/licenses/validate · Variável necessária: CODEXA_LICENSE_KEY</p>
+                </div>
+                <textarea readOnly value={middlewareByLicense[license.id].middleware} aria-label="Código do middleware" className="mt-3 min-h-64 w-full rounded-lg border border-white/[0.08] bg-black/30 p-3 font-mono text-[10px] leading-relaxed text-slate-300 outline-none" /><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => void copyMiddleware(license.id)} className="rounded-lg border border-white/10 px-3 py-2 text-[11px] text-slate-200 hover:bg-white/5">Copiar código</button><button type="button" onClick={() => downloadMiddleware(license.id)} className="rounded-lg border border-white/10 px-3 py-2 text-[11px] text-slate-200 hover:bg-white/5">Baixar middleware.ts</button></div></>}
             </div>
           </div>}
         </article>
