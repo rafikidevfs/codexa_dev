@@ -62,7 +62,11 @@ function getErrorDetails(error: unknown, statusOverride?: number) {
   const cause = asRecord(record?.cause)
   const providerError = parseProviderError(record?.responseBody) ?? parseProviderError(record?.data)
   const metadata = asRecord(providerError?.metadata)
+  const upstreamError = parseProviderError(metadata?.raw)
+  const upstreamMetadata = asRecord(upstreamError?.metadata)
   const providerMessage = readString(
+    upstreamError?.message,
+    typeof upstreamError?.error === 'string' ? upstreamError.error : undefined,
     providerError?.message,
     typeof providerError?.error === 'string' ? providerError.error : undefined,
     record?.message,
@@ -72,7 +76,7 @@ function getErrorDetails(error: unknown, statusOverride?: number) {
     ?? (typeof record?.statusCode === 'number' ? record.statusCode : undefined)
     ?? (typeof cause?.statusCode === 'number' ? cause.statusCode : undefined)
     ?? (typeof providerError?.status === 'number' ? providerError.status : undefined)
-  const code = readCode(providerError?.code, record?.code, cause?.code)
+  const code = readCode(upstreamError?.code, providerError?.code, record?.code, cause?.code)
   const name = readString(record?.name, cause?.name)
   const searchable = `${providerMessage ?? ''} ${code ?? ''} ${name ?? ''}`.toLowerCase()
   let category: ErrorCategory = 'internal_error'
@@ -100,8 +104,9 @@ function getErrorDetails(error: unknown, statusOverride?: number) {
     errorName: name,
     statusCode,
     providerCode: code,
-    provider: readString(metadata?.provider_name, metadata?.provider),
+    provider: readString(metadata?.provider_name, metadata?.provider, upstreamMetadata?.provider_name),
     providerMessage: providerMessage ? sanitizeDiagnosticText(providerMessage) : undefined,
+    retryAfter: readCode(metadata?.retry_after, upstreamMetadata?.retry_after),
     retryable: typeof record?.isRetryable === 'boolean' ? record.isRetryable : undefined,
   }
 }
