@@ -7,7 +7,7 @@ import { getWorkspaceActor } from '@/lib/supabase/workspace-auth'
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL?.trim()
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL?.trim() || 'google/gemma-4-26b-a4b-it:free'
 
 type ErrorRecord = Record<string, unknown>
 type ErrorCategory =
