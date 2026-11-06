@@ -1,4 +1,5 @@
 export const workspaceAccess: Record<string, string[]> = {
+  comercial: ['dashboard_comercial:view'],
   leads: ['leads:view'],
   clientes: ['clients:view'],
   contatos: ['contacts:view'],
@@ -21,6 +22,9 @@ export const workspaceAccess: Record<string, string[]> = {
   equipe: ['team:view'],
   usuarios: ['users:manage_users'],
   'papeis-e-permissoes': ['roles:manage_roles'],
+  documentos: ['documents:view'],
+  emblemas: ['badges:manage'],
+  'configuracao-xp': ['badges:manage'],
   'meu-perfil': ['profile:view'],
   'meu-historico': ['projects:view'],
   configuracoes: ['settings:view'],
@@ -37,4 +41,23 @@ export function hasWorkspaceAccess(permissions: string[], slug: string): boolean
 
 export function normalizeWorkspaceRoleName(name: string): string {
   return name.trim().toLocaleLowerCase('pt-BR')
+}
+
+export type WorkspacePermissionOverride = {
+  module_name: string
+  action_name: string
+  effect: 'allow' | 'deny'
+}
+
+export function applyWorkspacePermissionOverrides(
+  rolePermissions: Iterable<string>,
+  overrides: WorkspacePermissionOverride[],
+): Set<string> {
+  const effective = new Set(rolePermissions)
+  for (const override of overrides) {
+    const key = `${override.module_name}:${override.action_name}`
+    if (override.effect === 'allow') effective.add(key)
+    else effective.delete(key)
+  }
+  return effective
 }

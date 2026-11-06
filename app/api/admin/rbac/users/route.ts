@@ -13,7 +13,7 @@ export async function GET() {
     const { supabase } = await requireWorkspacePermission('users', 'manage_users')
     const [{ data: members, error: membersError }, { data: roles, error: rolesError }] = await Promise.all([
       supabase.from('team_members')
-        .select('id,user_id,full_name,email,role_name,status,created_at,updated_at')
+        .select('id,user_id,full_name,email,job_title,department,joined_on,role_name,status,created_at,updated_at')
         .order('full_name')
         .limit(2000),
       supabase.from('access_roles').select('name,is_active').eq('is_active', true).order('name'),
@@ -22,7 +22,13 @@ export async function GET() {
       console.error('Team list load failed:', membersError?.message ?? rolesError?.message)
       return NextResponse.json({ error: 'Não foi possível carregar usuários e cargos.' }, { status: 503 })
     }
-    return NextResponse.json({ members: members ?? [], roles: roles ?? [] }, { headers: { 'Cache-Control': 'private, no-store' } })
+    const uniqueMembers = new Map<string, (typeof members)[number]>()
+    for (const member of members ?? []) {
+      const key = member.user_id ?? member.email.trim().toLowerCase()
+      const previous = uniqueMembers.get(key)
+      if (!previous || (!previous.user_id && member.user_id)) uniqueMembers.set(key, member)
+    }
+    return NextResponse.json({ members: [...uniqueMembers.values()], roles: roles ?? [] }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     return fail(error)
   }
@@ -136,7 +142,7 @@ export async function POST(request: Request) {
         joined_on: new Date().toISOString().slice(0, 10),
       })
     const { data: member, error: memberError } = await memberQuery
-      .select('id,user_id,full_name,email,role_name,status,created_at,updated_at').single()
+      .select('id,user_id,full_name,email,job_title,department,joined_on,role_name,status,created_at,updated_at').single()
     if (memberError || !member) {
       console.error('Team account membership creation failed:', memberError?.message ?? 'Membership returned no row')
       if (createdAuthUser) {

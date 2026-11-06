@@ -122,17 +122,6 @@ export function EntityAttachments({ entityType, entityId, canUpload = true, canD
     }
   }
 
-  async function download(item: Attachment) {
-    if (!canDownload) { setMessage('Seu cargo não tem permissão para abrir anexos.'); return }
-    if (entityType === 'contract') {
-      window.open(`/api/workspace/contracts/${entityId}/attachments/${item.id}`, '_blank', 'noopener,noreferrer')
-      return
-    }
-    const { data, error } = await supabase.storage.from('private-documents').createSignedUrl(item.storage_path, 60)
-    if (error || !data?.signedUrl) { setMessage(error?.message ?? 'O armazenamento não retornou um link de acesso.'); return }
-    window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
-  }
-
   async function remove(item: Attachment) {
     if (!canDelete) { setMessage('Seu cargo não tem permissão para excluir anexos.'); return }
     if (!window.confirm(`Excluir “${item.file_name}”?`)) return
@@ -155,13 +144,15 @@ export function EntityAttachments({ entityType, entityId, canUpload = true, canD
     {loading ? <p className="mt-4 flex items-center text-xs text-slate-600"><Loader2 className="mr-2 size-3.5 animate-spin" />Carregando anexos...</p> : items.length === 0 ? <p className="mt-4 text-sm text-slate-500">Nenhum anexo.</p> : <div className="mt-3 space-y-2">
       {items.map((item) => {
         const member = members.find((person) => person.user_id === item.uploaded_by || person.id === item.uploaded_by)
-        const previewUrl = entityType === 'contract' ? `/api/workspace/contracts/${entityId}/attachments/${item.id}` : undefined
-        const downloadUrl = entityType === 'contract' ? `${previewUrl}?download=1` : undefined
+        const previewUrl = entityType === 'contract'
+          ? `/api/workspace/contracts/${entityId}/attachments/${item.id}`
+          : `/api/workspace/attachments/${item.id}`
+        const downloadUrl = `${previewUrl}?download=1`
         return <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-white/[0.06] px-3 py-2">
           <div className="min-w-0 flex-1"><p className="truncate text-sm text-slate-200">{item.file_name}</p><p className="mt-1 flex flex-wrap gap-x-2 text-xs text-slate-500"><span>{item.mime_type || 'Tipo não informado'}</span><span>{Math.max(1, Math.round(item.file_size / 1024))} KB</span><span>{member?.full_name || 'Membro da equipe'}</span><span>{new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium' }).format(new Date(item.created_at))}</span></p></div>
           <div className="flex shrink-0 gap-1">
-            {previewUrl ? <a href={previewUrl} target="_blank" rel="noopener noreferrer" aria-label={`Visualizar ${item.file_name}`} title="Visualizar arquivo" className="rounded p-2 text-slate-400 hover:bg-white/5 hover:text-white"><ExternalLink className="size-4" /></a> : <button type="button" onClick={() => void download(item)} aria-label={`Abrir ${item.file_name}`} className="rounded p-2 text-slate-400 hover:bg-white/5 hover:text-white"><ExternalLink className="size-4" /></button>}
-            {downloadUrl ? <a href={downloadUrl} aria-label={`Baixar ${item.file_name}`} title="Baixar arquivo" className="rounded p-2 text-slate-400 hover:bg-white/5 hover:text-white"><Download className="size-4" /></a> : <button type="button" onClick={() => void download(item)} aria-label={`Baixar ${item.file_name}`} className="rounded p-2 text-slate-400 hover:bg-white/5 hover:text-white"><Download className="size-4" /></button>}
+            <a href={previewUrl} target="_blank" rel="noopener noreferrer" aria-label={`Visualizar ${item.file_name}`} title="Visualizar arquivo" className="rounded p-2 text-slate-400 hover:bg-white/5 hover:text-white"><ExternalLink className="size-4" /></a>
+            <a href={downloadUrl} aria-label={`Baixar ${item.file_name}`} title="Baixar arquivo" className="rounded p-2 text-slate-400 hover:bg-white/5 hover:text-white"><Download className="size-4" /></a>
             {canDelete && <button type="button" onClick={() => void remove(item)} aria-label={`Excluir ${item.file_name}`} className="rounded p-2 text-slate-400 hover:bg-rose-500/10 hover:text-rose-300"><Trash2 className="size-4" /></button>}
           </div>
         </div>

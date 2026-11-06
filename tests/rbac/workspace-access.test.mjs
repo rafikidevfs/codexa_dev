@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { hasWorkspaceAccess, normalizeWorkspaceRoleName } from '../../lib/workspace-access.ts'
+import { applyWorkspacePermissionOverrides, hasWorkspaceAccess, normalizeWorkspaceRoleName } from '../../lib/workspace-access.ts'
 
 test('denies routes when no explicit permission is present', () => {
   assert.equal(hasWorkspaceAccess([], 'clientes'), false)
@@ -32,4 +32,16 @@ test('dashboard and administrator access require their explicit grant or the adm
 test('normalizes role names before resolving stored role assignments', () => {
   assert.equal(normalizeWorkspaceRoleName('  ADMIN  '), 'admin')
   assert.equal(normalizeWorkspaceRoleName('FINANCEIRO'), 'financeiro')
+})
+
+test('individual deny overrides a role grant and individual allow adds only the named permission', () => {
+  const effective = applyWorkspacePermissionOverrides(
+    ['projects:view', 'projects:update'],
+    [
+      { module_name: 'projects', action_name: 'update', effect: 'deny' },
+      { module_name: 'projects', action_name: 'share', effect: 'allow' },
+    ],
+  )
+
+  assert.deepEqual([...effective].sort(), ['projects:share', 'projects:view'])
 })

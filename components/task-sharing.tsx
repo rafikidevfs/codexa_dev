@@ -38,18 +38,12 @@ export function TaskSharing({ taskId, projectId, currentUserId, responsibleId, o
     if (!target || target === currentUserId) return
     setBusy(true); setMessage('')
     if (isAdmin) {
-      let adminError: string | null = null
-      if (requestType === 'transfer') {
-        const result = await supabase.from('project_tasks').update({ responsible_id: target, project_id: null, received_from_user_id: currentUserId, received_via: 'admin_transfer' }).eq('id', taskId)
-        adminError = result.error?.message ?? null
-      } else {
-        const result = await supabase.from('project_tasks').select('participants').eq('id', taskId).maybeSingle()
-        const current = Array.isArray(result.data?.participants) ? result.data.participants : []
-        const update = await supabase.from('project_tasks').update({ participants: Array.from(new Set([...current, target])), project_id: null, received_from_user_id: currentUserId, received_via: 'admin_share' }).eq('id', taskId)
-        adminError = result.error?.message ?? update.error?.message ?? null
-      }
-      if (adminError) { setMessage('Não foi possível aplicar a ação administrativa.'); setBusy(false); return }
-      if (target !== currentUserId) await supabase.from('notifications').insert({ recipient_id: target, notification_type: `task_admin_${requestType}`, message: `Um administrador ${requestType === 'share' ? 'compartilhou' : 'transferiu'} uma atividade para você.`, entity_type: 'task', entity_id: taskId, link_path: '/workspace/projetos' })
+      const { error } = await supabase.rpc('admin_assign_workspace_task', {
+        p_task_id: taskId,
+        p_target_id: target,
+        p_request_type: requestType,
+      })
+      if (error) { setMessage('Não foi possível aplicar a ação administrativa.'); setBusy(false); return }
       setMessage('Ação administrativa aplicada.'); setTarget(''); await load(); onChanged?.()
     } else {
       const { error } = await supabase.rpc('create_task_transfer_request', { p_task_id: taskId, p_target_id: target, p_request_type: requestType })

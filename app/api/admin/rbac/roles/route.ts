@@ -46,7 +46,7 @@ export async function GET() {
     const { supabase } = await requireWorkspacePermission('roles', 'manage_roles')
     const [{ data: roles, error: rolesError }, { data: permissions, error: permissionsError }, { data: members, error: membersError }, { data: assignments, error: assignmentsError }] = await Promise.all([
       supabase.from('access_roles').select('id,name,description,is_system,is_active,created_at,updated_at').order('name'),
-      supabase.from('access_permissions').select('id,module_name,action_name').order('module_name').order('action_name'),
+      supabase.from('access_permissions').select('id,module_name,action_name').eq('is_active', true).order('module_name').order('action_name'),
       supabase.from('team_members').select('role_name').limit(5000),
       supabase.from('role_permissions').select('role_id,permission_id').limit(10000),
     ])

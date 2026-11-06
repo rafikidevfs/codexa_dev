@@ -1,9 +1,9 @@
 export const workspaceModules: Record<string, string> = {
-  dashboard: 'Dashboard', leads: 'Leads', clientes: 'Clientes', contatos: 'Contatos', propostas: 'Propostas', contratos: 'Contratos',
+  dashboard: 'Dashboard', comercial: 'Visão comercial', documentos: 'Documentos', 'configuracao-xp': 'Configuração de XP', leads: 'Leads', clientes: 'Clientes', contatos: 'Contatos', propostas: 'Propostas', contratos: 'Contratos',
   projetos: 'Projetos', tarefas: 'Tarefas', solicitacoes: 'Solicitações de alteração', suporte: 'Suporte', sistemas: 'Sistemas dos clientes',
   modulos: 'Módulos', planos: 'Planos', licencas: 'Licenças', 'contas-a-receber': 'Contas a receber', 'contas-a-pagar': 'Contas a pagar',
   'fluxo-de-caixa': 'Fluxo de caixa', transacoes: 'Transações', 'categorias-financeiras': 'Categorias financeiras', relatorios: 'Relatórios',
-  equipe: 'Equipe', usuarios: 'Usuários', 'papeis-e-permissoes': 'Papéis e permissões', 'meu-perfil': 'Meu perfil', 'meu-historico': 'Meu histórico', configuracoes: 'Configurações',
+  equipe: 'Equipe', usuarios: 'Usuários', 'papeis-e-permissoes': 'Papéis e permissões', emblemas: 'Emblemas', 'meu-perfil': 'Meu perfil', 'meu-historico': 'Meu histórico', configuracoes: 'Configurações',
   aparencia: 'Aparência', auditoria: 'Auditoria',
 }
 

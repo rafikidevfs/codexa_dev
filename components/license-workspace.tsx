@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { Check, Copy, KeyRound, Loader2, Plus, Search, ShieldCheck, Trash2, X } from 'lucide-react'
 import { isModuleAvailable } from '@/lib/licensing/module-status'
 import { IntegrationHelp } from '@/components/integration-help'
+import { IntegrationModeGuide } from '@/components/integration-mode-guide'
 
 type Client = { id: string; name: string }
 type System = { id: string; name: string; client_id: string | null }
@@ -28,7 +29,8 @@ type License = {
   modules: Module[]
 }
 type LicenseData = { clients: Client[]; systems: System[]; licenses: License[] }
-type MiddlewareData = { middleware: string; routes: Array<{ routePattern: string; moduleCode: string; blockedPath: string }>; warnings: string[]; readyForProduction: boolean }
+type RouteMapping = { id: string; system_module_id: string; route_pattern: string; blocked_path: string }
+type RotaAnalysis = { tabs: string[]; detectedTabs: Array<{ tab: string; code: string; confidence: number; hasContent: boolean; hasTrigger: boolean; navigationElements?: string[]; contentEvidence?: string[]; functionalities?: string[]; dependencies?: string[] }>; mappings: Array<{ tab: string; code: string }>; sharedComponents: string[]; warnings: string[]; uncertain: string[]; requiresConfirmation: boolean }
 
 const inputClass = 'field rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-sm text-slate-200 outline-none placeholder:text-slate-600 focus:border-blue-400/60'
 const statusNames: Record<string, string> = { active: 'Ativa', suspended: 'Suspensa', revoked: 'Revogada' }
@@ -65,8 +67,18 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
   const [selectedClient, setSelectedClient] = useState('')
   const [selectedSystem, setSelectedSystem] = useState('')
   const [scriptOrigin, setScriptOrigin] = useState(defaultLicenseSiteUrl)
-  const [middlewareByLicense, setMiddlewareByLicense] = useState<Record<string, MiddlewareData>>({})
-  const [middlewareLoadingId, setMiddlewareLoadingId] = useState('')
+  const [routesByLicense, setRoutesByLicense] = useState<Record<string, RouteMapping[]>>({})
+  const [middlewareByLicense, setMiddlewareByLicense] = useState<Record<string, string>>({})
+  const [singleRouteByLicense, setSingleRouteByLicense] = useState<Record<string, string>>({})
+  const [visualScriptByLicense, setVisualScriptByLicense] = useState<Record<string, string>>({})
+  const [scriptSnippetByLicense, setScriptSnippetByLicense] = useState<Record<string, string>>({})
+  const [adminSourceByLicense, setAdminSourceByLicense] = useState<Record<string, string>>({})
+  const [generatingZipId, setGeneratingZipId] = useState('')
+  const [mappingByLicense, setMappingByLicense] = useState<Record<string, string>>({})
+  const [analysisByLicense, setAnalysisByLicense] = useState<Record<string, RotaAnalysis>>({})
+  const [analyzingLicenseId, setAnalyzingLicenseId] = useState('')
+  const [guideMode, setGuideMode] = useState<'routes' | 'single' | null>(null)
+  const [routeForm, setRouteForm] = useState({ licenseId: '', moduleId: '', pattern: '', blockedPath: '/acesso-bloqueado' })
 
   async function load() {
     setLoading(true)
@@ -179,6 +191,109 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
     }
   }
 
+  async function loadRoutes(licenseId: string) {
+    try {
+      const result = await requestJson<{ routes: RouteMapping[] }>(`/api/admin/licenses/${licenseId}/routes`)
+      setRoutesByLicense((current) => ({ ...current, [licenseId]: result.routes }))
+    } catch (loadError) { setError(loadError instanceof Error ? loadError.message : 'Não foi possível carregar as rotas.') }
+  }
+
+  async function addRoute(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    try {
+      const result = await requestJson<{ route: RouteMapping }>(`/api/admin/licenses/${routeForm.licenseId}/routes`, { method: 'POST', body: JSON.stringify({ moduleId: routeForm.moduleId, routePattern: routeForm.pattern, blockedPath: routeForm.blockedPath }) })
+      setRoutesByLicense((current) => ({ ...current, [routeForm.licenseId]: [...(current[routeForm.licenseId] ?? []), result.route] }))
+      setRouteForm((current) => ({ ...current, pattern: '' }))
+      setNotice('Rota protegida adicionada.')
+    } catch (routeError) { setError(routeError instanceof Error ? routeError.message : 'Não foi possível adicionar a rota.') }
+  }
+
+  async function generateMiddleware(licenseId: string) {
+    setError('')
+    setNotice('')
+    try {
+      const result = await requestJson<{ source: string; routeCount: number; warning?: string | null }>(`/api/admin/licenses/${licenseId}/middleware`)
+      if (!result.routeCount) throw new Error(result.warning || 'Cadastre ao menos uma rota protegida antes de gerar o middleware.')
+      setMiddlewareByLicense((current) => ({ ...current, [licenseId]: result.source }))
+      setNotice(`middleware.ts gerado com ${result.routeCount} rota${result.routeCount === 1 ? '' : 's'}. Baixe o arquivo e revise antes de instalar no cliente.`)
+    } catch (generateError) { setError(generateError instanceof Error ? generateError.message : 'Não foi possível gerar o middleware.') }
+  }
+
+  async function analyzeRotaUnica(licenseId: string) {
+    const originalCode = adminSourceByLicense[licenseId]?.trim()
+    if (!originalCode) { setError('Cole o conteúdo original de AdminClient.tsx antes de analisar.'); return }
+    setAnalyzingLicenseId(licenseId); setError('')
+    try {
+      const form = new FormData(); form.set('originalCode', originalCode); form.set('analyze', 'true')
+      const mapping = mappingByLicense[licenseId]?.trim(); if (mapping) form.set('mapping', mapping)
+      const response = await fetch(`/api/admin/licenses/${licenseId}/integration/rota-unica`, { method: 'POST', body: form })
+      const result = await response.json() as { analysis?: RotaAnalysis; error?: string }
+      if (!response.ok || !result.analysis) throw new Error(result.error || 'Não foi possível analisar o código.')
+      setAnalysisByLicense((current) => ({ ...current, [licenseId]: result.analysis! }))
+      setNotice(`Análise concluída: ${result.analysis.tabs.length} aba${result.analysis.tabs.length === 1 ? '' : 's'} detectada${result.analysis.tabs.length === 1 ? '' : 's'}.`)
+    } catch (analysisError) { setError(analysisError instanceof Error ? analysisError.message : 'Não foi possível analisar o código.') }
+    finally { setAnalyzingLicenseId('') }
+  }
+
+  async function generateRotaUnicaZip(licenseId: string) {
+    const originalCode = adminSourceByLicense[licenseId]?.trim()
+    if (!originalCode) { setError('Cole o conteúdo original de AdminClient.tsx antes de gerar o ZIP.'); return }
+    setGeneratingZipId(licenseId)
+    setError('')
+    try {
+      const form = new FormData()
+      form.set('originalCode', originalCode)
+      const mapping = mappingByLicense[licenseId]?.trim()
+      if (mapping) form.set('mapping', mapping)
+      const response = await fetch(`/api/admin/licenses/${licenseId}/integration/rota-unica`, { method: 'POST', body: form })
+      if (!response.ok) { const result = await response.json() as { error?: string }; throw new Error(result.error || 'Não foi possível gerar o pacote.') }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = 'codexa-integration-rota-unica.zip'
+      anchor.click()
+      URL.revokeObjectURL(url)
+      setNotice('ZIP de integração com rota única gerado. Revise o manifesto para ver os arquivos e caminhos detectados.')
+    } catch (generateError) { setError(generateError instanceof Error ? generateError.message : 'Não foi possível gerar o pacote ZIP.') }
+    finally { setGeneratingZipId('') }
+  }
+
+  async function generateSingleRouteHelper(licenseId: string) {
+    setError('')
+    try {
+const result = await requestJson<{ source: string; visualScript: string; scriptSnippet: string; moduleCount: number }>(`/api/admin/licenses/${licenseId}/integration/helper`)
+  setSingleRouteByLicense((current) => ({ ...current, [licenseId]: result.source }))
+  setVisualScriptByLicense((current) => ({ ...current, [licenseId]: result.visualScript }))
+  setScriptSnippetByLicense((current) => ({ ...current, [licenseId]: result.scriptSnippet }))
+  setNotice(`Helper e script visual gerados para ${result.moduleCount} módulos. O script usa data-lic-module/data-lic-action e deve ser combinado com proteção server-side.`)
+    } catch (generateError) { setError(generateError instanceof Error ? generateError.message : 'Não foi possível gerar a integração de rota única.') }
+  }
+
+  function downloadTextFile(fileName: string, source: string, message: string) {
+    const blob = new Blob([source], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = fileName
+    anchor.click()
+    URL.revokeObjectURL(url)
+    setNotice(message)
+  }
+
+  function downloadMiddleware(licenseId: string) {
+    const source = middlewareByLicense[licenseId]
+    if (!source) return
+    const blob = new Blob([source], { type: 'text/typescript;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = 'middleware.ts'
+    anchor.click()
+    URL.revokeObjectURL(url)
+    setNotice('middleware.ts baixado. Coloque o arquivo na raiz do projeto Next.js e configure CODEXA_LICENSE_KEY no servidor.')
+  }
+
   async function deleteLicense(license: License) {
     const clientName = data.clients.find((client) => client.id === license.client_id)?.name ?? 'este cliente'
     const systemName = data.systems.find((system) => system.id === license.system_id)?.name ?? 'este sistema'
@@ -205,42 +320,6 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
     } catch {
       setError('Não foi possível copiar automaticamente. Selecione e copie a chave exibida.')
     }
-  }
-
-  async function loadMiddleware(licenseId: string) {
-    setMiddlewareLoadingId(licenseId)
-    setError('')
-    try {
-      const result = await requestJson<MiddlewareData>(`/api/admin/licenses/${licenseId}/middleware`)
-      setMiddlewareByLicense((current) => ({ ...current, [licenseId]: result }))
-    } catch (middlewareError) {
-      setError(middlewareError instanceof Error ? middlewareError.message : 'Não foi possível gerar o middleware.')
-    } finally {
-      setMiddlewareLoadingId('')
-    }
-  }
-
-  async function copyMiddleware(licenseId: string) {
-    const middleware = middlewareByLicense[licenseId]?.middleware
-    if (!middleware) return
-    try {
-      await navigator.clipboard.writeText(middleware)
-      setNotice('Middleware copiado para a área de transferência.')
-    } catch {
-      setError('Não foi possível copiar automaticamente o middleware.')
-    }
-  }
-
-  function downloadMiddleware(licenseId: string) {
-    const middleware = middlewareByLicense[licenseId]?.middleware
-    if (!middleware) return
-    const blob = new Blob([middleware], { type: 'text/typescript;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'middleware.ts'
-    link.click()
-    URL.revokeObjectURL(url)
   }
 
   return <section className="space-y-6">
@@ -328,10 +407,10 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
               {deletingId === license.id ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}<span className="lg:hidden">Excluir</span>
             </button>}
           </div>
-          <div className="border-t border-white/[0.06] px-5 py-3"><button type="button" onClick={() => setExpandedLicenseId((current) => current === license.id ? null : license.id)} aria-expanded={expandedLicenseId === license.id} className="flex w-full items-center justify-between text-left text-xs font-medium text-blue-200"><span>{expandedLicenseId === license.id ? 'Ocultar detalhes avançados' : 'Ver detalhes avançados'}</span><span>{license.modules.filter((module) => module.is_enabled).length} módulos liberados</span></button></div>
+          <div className="border-t border-white/[0.06] px-5 py-3"><button type="button" onClick={() => { const next = expandedLicenseId === license.id ? null : license.id; setExpandedLicenseId(next); if (next) { setRouteForm((current) => ({ ...current, licenseId: license.id, moduleId: license.modules[0]?.id ?? '' })); void loadRoutes(license.id) } }} aria-expanded={expandedLicenseId === license.id} className="flex w-full items-center justify-between text-left text-xs font-medium text-blue-200"><span>{expandedLicenseId === license.id ? 'Ocultar detalhes avançados' : 'Ver detalhes avançados'}</span><span>{license.modules.filter((module) => module.is_enabled).length} módulos liberados</span></button></div>
           {expandedLicenseId === license.id && <div className="p-5">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div><h2 className="text-xs font-semibold text-slate-200">Módulos contratados e liberados</h2><p className="mt-1 text-[11px] text-slate-600">A liberação só fica disponível após marcar o módulo como contratado.</p></div>
+              <div><h2 className="text-xs font-semibold text-slate-200">Módulos contratados e liberados</h2><p className="mt-1 text-[11px] text-slate-600">Aqui você define o acesso desta licença. Cadastre os módulos do sistema em Catálogo → Módulos; nesta tela apenas contrate e libere.</p></div>
               <span className="text-[11px] text-slate-500">{license.modules.filter((module) => module.is_enabled).length} liberados</span>
             </div>
             {license.modules.length ? <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{license.modules.map((module) => <div key={module.id} className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] bg-white/[0.015] px-3 py-2.5">
@@ -340,23 +419,14 @@ export function LicenseWorkspace({ permissions }: { permissions: string[] }) {
                 <label className="flex items-center gap-1.5 text-[10px] text-slate-500"><input type="checkbox" checked={module.is_contracted} disabled={!canManage} onChange={(event) => void updateModule(license.id, module, event.target.checked, event.target.checked && module.is_enabled)} className="accent-blue-500 disabled:opacity-40" />Contratado</label>
                 <label className="flex items-center gap-1.5 text-[10px] text-slate-500"><input type="checkbox" checked={module.is_enabled} disabled={!canManage || !module.is_contracted || !isModuleAvailable(module.availability_status)} onChange={(event) => void updateModule(license.id, module, module.is_contracted, event.target.checked)} className="accent-emerald-500 disabled:opacity-40" />Liberado</label>
               </div>
-            </div>)}</div> : <p className="rounded-lg border border-dashed border-white/[0.08] p-5 text-center text-xs text-slate-600">Nenhum módulo cadastrado para este sistema.</p>}
-            <div className="mt-6 rounded-lg border border-blue-400/15 bg-blue-400/[0.04] p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div><h3 className="text-xs font-semibold text-blue-100">Middleware para o projeto do cliente</h3><p className="mt-1 text-[11px] text-slate-500">Gere o arquivo e copie para <code>middleware.ts</code> na raiz do projeto Next.js do cliente.</p></div>
-                <button type="button" onClick={() => void loadMiddleware(license.id)} disabled={middlewareLoadingId === license.id} className="rounded-lg bg-blue-500 px-3 py-2 text-[11px] font-semibold text-white hover:bg-blue-400 disabled:opacity-50">{middlewareLoadingId === license.id ? 'Gerando...' : middlewareByLicense[license.id] ? 'Regenerar arquivo' : 'Gerar middleware'}</button>
-              </div>
-              {middlewareByLicense[license.id] && <>
-                {middlewareByLicense[license.id].warnings.map((warning) => <p key={warning} role="alert" className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[11px] text-amber-200">{warning}</p>)}
-                <div className="mt-3 rounded-lg border border-white/[0.06] bg-black/20 p-3 text-[11px] text-slate-400">
-                  <p className="font-medium text-slate-200">Rotas protegidas: {middlewareByLicense[license.id].routes.length}</p>
-                  {middlewareByLicense[license.id].routes.length ? <ul className="mt-2 flex flex-col gap-1">{middlewareByLicense[license.id].routes.map((route) => <li key={`${route.routePattern}-${route.moduleCode}`}>{route.routePattern} → {route.moduleCode}</li>)}</ul> : <p className="mt-1">Configure as associações de rota e módulo antes de usar este arquivo em produção.</p>}
-                  <p className="mt-2">API central: https://gestao-de-software-house.vercel.app/api/licenses/validate · Variável necessária: CODEXA_LICENSE_KEY</p>
-                </div>
-                <textarea readOnly value={middlewareByLicense[license.id].middleware} aria-label="Código do middleware" className="mt-3 min-h-64 w-full rounded-lg border border-white/[0.08] bg-black/30 p-3 font-mono text-[10px] leading-relaxed text-slate-300 outline-none" /><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => void copyMiddleware(license.id)} className="rounded-lg border border-white/10 px-3 py-2 text-[11px] text-slate-200 hover:bg-white/5">Copiar código</button><button type="button" onClick={() => downloadMiddleware(license.id)} className="rounded-lg border border-white/10 px-3 py-2 text-[11px] text-slate-200 hover:bg-white/5">Baixar middleware.ts</button></div></>}
-            </div>
+            </div>)}</div> : <p className="rounded-lg border border-dashed border-white/[0.08] p-5 text-center text-xs text-slate-600">Nenhum módulo cadastrado para este sistema. Cadastre módulos em Catálogo → Módulos antes de configurar a licença.</p>}
+          <div className="mt-5 border-t border-white/[0.06] pt-4"><div className="mb-4 grid gap-3 lg:grid-cols-2"><article className="rounded-xl border border-blue-400/25 bg-gradient-to-br from-blue-500/[0.12] to-blue-500/[0.03] p-4 shadow-[0_12px_30px_-20px_rgba(59,130,246,0.8)]"><div className="flex items-center justify-between gap-3"><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-300">Opção 1</p><span className="rounded-full border border-blue-300/20 bg-blue-300/10 px-2 py-1 text-[10px] font-medium text-blue-200">Mais comum</span></div><h2 className="mt-2 text-base font-semibold text-white">Proteção por rotas</h2><p className="mt-1 text-xs leading-5 text-slate-400">Para páginas e rotas independentes. O middleware verifica a licença antes de liberar cada caminho.</p><p className="mt-3 text-[10px] text-slate-500">Compatível: Next.js com rotas individuais · Intervenção: copiar um arquivo e configurar o servidor.</p><div className="mt-3 flex gap-2"><button type="button" onClick={() => document.getElementById(`routes-${license.id}`)?.scrollIntoView({ behavior: 'smooth' })} className="rounded-lg bg-blue-500/20 px-3 py-2 text-[11px] font-semibold text-blue-100">Selecionar modo</button><button type="button" onClick={() => setGuideMode('routes')} className="rounded-lg border border-white/10 px-3 py-2 text-[11px] text-slate-300">Instruções</button></div></article><article className="rounded-xl border border-violet-400/25 bg-gradient-to-br from-violet-500/[0.14] to-violet-500/[0.03] p-4 shadow-[0_12px_30px_-20px_rgba(139,92,246,0.85)]"><div className="flex items-center justify-between gap-3"><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-violet-300">Opção 2</p><span className="rounded-full border border-violet-300/20 bg-violet-300/10 px-2 py-1 text-[10px] font-medium text-violet-200">Uma única página</span></div><p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-violet-300">Integração rota única</p><h2 className="mt-2 text-base font-semibold text-white">Integração rota única</h2><p className="mt-1 text-xs leading-5 text-slate-400">Para abas, estados React ou conteúdo condicional agrupado em uma única página.</p><p className="mt-3 text-[10px] text-slate-500">Compatível: páginas TSX analisáveis · Intervenção: confirmar mapeamento e instalar o ZIP.</p><div className="mt-3 flex gap-2"><button type="button" onClick={() => document.getElementById(`single-${license.id}`)?.scrollIntoView({ behavior: 'smooth' })} className="rounded-lg bg-violet-500/20 px-3 py-2 text-[11px] font-semibold text-violet-100">Selecionar modo</button><button type="button" onClick={() => setGuideMode('single')} className="rounded-lg border border-white/10 px-3 py-2 text-[11px] text-slate-300">Instruções</button></div></article></div><div id={`single-${license.id}`} className="rounded-lg border border-violet-400/15 bg-violet-400/5 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-xs font-semibold text-violet-200">Integração rota única</h2><p className="mt-1 text-[11px] text-slate-500">Cole o AdminClient.tsx original do template Medellín para gerar os três arquivos prontos, sem expor a chave privada.</p></div><button type="button" disabled={generatingZipId === license.id} onClick={() => void generateRotaUnicaZip(license.id)} className="rounded-lg bg-violet-500/20 px-3 py-2 text-[11px] font-semibold text-violet-100 hover:bg-violet-500/30 disabled:opacity-50">{generatingZipId === license.id ? 'Gerando ZIP...' : 'Gerar integração de rota única'}</button></div><textarea value={adminSourceByLicense[license.id] ?? ''} onChange={(event) => setAdminSourceByLicense((current) => ({ ...current, [license.id]: event.target.value }))} placeholder="Cole aqui o código original da página ou componente agrupador" aria-label="Código original da página agrupadora" className="mt-3 min-h-32 w-full rounded-lg border border-white/[0.06] bg-black/20 p-3 font-mono text-[10px] text-slate-300 outline-none placeholder:text-slate-700" /><label className="mt-3 block text-[10px] text-slate-500">Mapeamento confirmado (JSON opcional, obrigatório quando houver mais de uma interpretação)<textarea value={mappingByLicense[license.id] ?? ''} onChange={(event) => setMappingByLicense((current) => ({ ...current, [license.id]: event.target.value }))} placeholder={'[{"tab":"financeiro","code":"finance"}]'} className="mt-1 min-h-16 w-full rounded-lg border border-white/[0.06] bg-black/20 p-2 font-mono text-[10px] text-slate-300 outline-none placeholder:text-slate-700" /></label><div className="mt-2 flex flex-wrap items-center justify-between gap-2"><p className="text-[10px] text-slate-600">A análise detecta tipos, constantes, estados, branches, switches e componentes auxiliares antes de gerar o ZIP.</p><div className="flex gap-2"><button type="button" onClick={() => void analyzeRotaUnica(license.id)} disabled={analyzingLicenseId === license.id} className="rounded-lg border border-blue-400/25 px-3 py-2 text-[11px] font-medium text-blue-200 hover:bg-blue-400/10 disabled:opacity-50">{analyzingLicenseId === license.id ? 'Analisando...' : 'Analisar código'}</button><button type="button" onClick={() => void generateSingleRouteHelper(license.id)} className="rounded-lg border border-violet-400/25 px-3 py-2 text-[11px] font-medium text-violet-200 hover:bg-violet-400/10">Gerar apenas helper</button></div></div>{analysisByLicense[license.id] && <div className="mt-3 rounded-lg border border-blue-400/15 bg-blue-400/5 p-3"><p className="text-[11px] font-semibold text-blue-200">Diagnóstico: {analysisByLicense[license.id].tabs.length} abas detectadas</p><div className="mt-2 grid gap-1.5 sm:grid-cols-2">{analysisByLicense[license.id].detectedTabs.map((tab) => <p key={tab.tab} className="text-[10px] text-slate-400"><span className="font-medium text-slate-200">{tab.tab}</span> → {tab.code || 'sem módulo'} · {Math.round(tab.confidence * 100)}%</p>)}</div>{analysisByLicense[license.id].uncertain.length > 0 && <p className="mt-2 text-[10px] text-amber-300">Revisar: {analysisByLicense[license.id].uncertain.join(', ')}</p>}</div>}{singleRouteByLicense[license.id] && <div><div className="mt-3 flex items-center justify-between gap-2"><p className="text-[11px] text-emerald-300">Modo Compatível — Rota Única pronto</p><button type="button" onClick={() => downloadTextFile('codexa-license.ts', singleRouteByLicense[license.id], 'codexa-license.ts baixado. Mantenha CODEXA_LICENSE_API_URL e CODEXA_LICENSE_KEY apenas no servidor.')} className="rounded-lg bg-violet-500/15 px-3 py-2 text-[11px] font-semibold text-violet-200 hover:bg-violet-500/25">Baixar helper</button></div><textarea readOnly value={singleRouteByLicense[license.id]} aria-label="helper de rota única gerado" className="mt-2 min-h-52 w-full rounded-lg border border-white/[0.06] bg-black/20 p-3 font-mono text-[10px] text-slate-300 outline-none" />{visualScriptByLicense[license.id] && <div className="mt-3 rounded-lg border border-amber-400/15 bg-amber-400/5 p-3"><div className="flex items-center justify-between gap-2"><p className="text-[11px] font-semibold text-amber-200">Script visual JavaScript</p><button type="button" onClick={() => downloadTextFile('codexa-license.js', visualScriptByLicense[license.id], 'codexa-license.js baixado.')} className="rounded-lg bg-amber-400/15 px-3 py-2 text-[11px] font-semibold text-amber-100 hover:bg-amber-400/25">Baixar JS</button></div><p className="mt-1 text-[10px] text-slate-400">Publique este arquivo ou use o endpoint /api/client-script.js. Marque módulos com data-lic-module e ações com data-lic-action.</p><textarea readOnly value={scriptSnippetByLicense[license.id]} aria-label="snippet do script visual" className="mt-2 min-h-16 w-full rounded-lg border border-white/[0.06] bg-black/20 p-3 font-mono text-[10px] text-amber-100 outline-none" /></div>}</div>}</div><div id={`routes-${license.id}`} className="mt-4 rounded-xl border border-blue-400/25 bg-gradient-to-br from-blue-500/[0.12] to-blue-500/[0.03] p-4 shadow-[0_12px_30px_-20px_rgba(59,130,246,0.8)]"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-300">Integração padrão</p><h2 className="mt-1 text-sm font-semibold text-white">Proteção por rotas</h2><p className="mt-1 text-[11px] leading-5 text-slate-400">Cadastre cada caminho protegido, associe-o a um módulo e gere o middleware.</p></div><span className="rounded-full border border-blue-300/20 bg-blue-300/10 px-2 py-1 text-[10px] font-medium text-blue-200">Várias rotas</span></div><form onSubmit={(event) => void addRoute(event)} className="mt-3 grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]"><select required value={routeForm.licenseId === license.id ? routeForm.moduleId : ''} onChange={(event) => setRouteForm((current) => ({ ...current, licenseId: license.id, moduleId: event.target.value }))} className={`${inputClass} mt-0`}><option value="">Módulo</option>{license.modules.map((module) => <option key={module.id} value={module.id}>{module.name} · {module.internal_code}</option>)}</select><input required value={routeForm.licenseId === license.id ? routeForm.pattern : ''} onChange={(event) => setRouteForm((current) => ({ ...current, licenseId: license.id, pattern: event.target.value }))} placeholder="/financeiro/:path*" className={`${inputClass} mt-0`} /><input value={routeForm.licenseId === license.id ? routeForm.blockedPath : '/acesso-bloqueado'} onChange={(event) => setRouteForm((current) => ({ ...current, licenseId: license.id, blockedPath: event.target.value }))} placeholder="/acesso-bloqueado" className={`${inputClass} mt-0`} /><button disabled={!canManage} className="rounded-lg bg-blue-500 px-3 py-2 text-[11px] font-semibold text-white disabled:opacity-40">Adicionar</button></form>
+            <button type="button" onClick={() => void generateMiddleware(license.id)} disabled={!canManage || !(routesByLicense[license.id]?.length)} className="mt-3 rounded-lg bg-blue-500 px-3 py-2 text-[11px] font-semibold text-white hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-40">Gerar middleware.ts</button>
+            <div className="mt-3 space-y-1.5">{(routesByLicense[license.id] ?? []).map((route) => <div key={route.id} className="flex items-center justify-between rounded-lg border border-white/[0.06] px-3 py-2 text-[11px]"><span className="font-mono text-slate-300">{route.route_pattern}</span><span className="text-slate-500">{license.modules.find((module) => module.id === route.system_module_id)?.internal_code ?? 'módulo'}</span></div>)}{routesByLicense[license.id]?.length === 0 && <p className="text-[11px] text-slate-600">Nenhuma rota configurada. Cadastre uma rota real para gerar o middleware.</p>}</div>
+            {middlewareByLicense[license.id] && <div className="mt-3"><div className="flex items-center justify-between gap-2"><p className="text-[11px] text-emerald-300">middleware.ts pronto para instalação</p><button type="button" onClick={() => downloadMiddleware(license.id)} className="rounded-lg bg-emerald-500/15 px-3 py-2 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/25">Baixar middleware.ts</button></div><textarea readOnly value={middlewareByLicense[license.id]} aria-label="middleware.ts gerado" className="mt-2 min-h-64 w-full rounded-lg border border-white/[0.06] bg-black/20 p-3 font-mono text-[10px] text-slate-300 outline-none" /></div>}</div></div>
           </div>}
         </article>
       })}</div> : <div className="rounded-xl border border-white/[0.07] bg-[#11161e] p-10 text-center"><Check className="mx-auto size-6 text-slate-600" /><p className="mt-3 text-sm text-slate-400">Nenhuma licença encontrada</p><p className="mt-1 text-xs text-slate-600">Emita uma licença para começar a controlar o acesso aos módulos.</p></div>}
+    {guideMode && <IntegrationModeGuide mode={guideMode} onClose={() => setGuideMode(null)} />}
   </section>
 }

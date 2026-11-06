@@ -13,10 +13,16 @@ import { AdminWorkspace } from '@/components/admin-workspace'
 import { ReportsWorkspace } from '@/components/reports-workspace'
 import { ActivityHistoryWorkspace } from '@/components/activity-history-workspace'
 import { AccountWorkspace } from '@/components/account-workspace'
+import { GamifiedProfileWorkspace } from '@/components/gamified-profile-workspace'
 import { AuthScreen } from '@/components/auth-screen'
+import { XpSettingsWorkspace } from '@/components/xp-settings-workspace'
+import { CommandAssistant } from '@/components/command-assistant'
+import { UserAvatar } from '@/components/user-avatar'
 import { createClient } from '@/lib/supabase/client'
 import { hasWorkspaceAccess } from '@/lib/workspace-access'
-import { applyWorkspaceTheme, getWorkspaceThemePreference } from '@/lib/workspace-theme'
+import { applyWorkspaceAppearance, applyWorkspaceTheme, defaultAppearance, getWorkspaceThemePreference, type WorkspaceAppearance } from '@/lib/workspace-theme'
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
+import { faChartLine, faUserPlus, faUsers, faAddressBook, faFileSignature, faFileContract, faDiagramProject, faListCheck, faCodePullRequest, faHeadset, faServer, faPuzzlePiece, faLayerGroup, faKey, faArrowTrendUp, faArrowTrendDown, faChartPie, faUserShield, faUserGear, faShieldHalved, faClockRotateLeft, faUserCircle, faPalette, faGear, faMedal, faTrophy, faFolderOpen, faSliders } from '@fortawesome/free-solid-svg-icons'
 import {
   Activity,
   Bell,
@@ -42,6 +48,7 @@ import {
   Plus,
   Search,
   Settings,
+  Sparkles,
   ShieldCheck,
   Users,
   WalletCards,
@@ -49,67 +56,69 @@ import {
 } from 'lucide-react'
 
 const navigationGroups = [
-  { label: 'Workspace', items: [{ label: 'Dashboard', icon: LayoutDashboard }] },
+  { label: 'Workspace', items: [{ label: 'Dashboard', icon: faChartLine }, { label: 'Visão comercial', icon: faChartLine }, { label: 'Documentos', icon: faFolderOpen }] },
   { label: 'Relacionamento', items: [
-    { label: 'Leads', icon: Inbox },
-    { label: 'Clientes', icon: Building2 },
-    { label: 'Contatos', icon: Users },
+    { label: 'Leads', icon: faUserPlus },
+    { label: 'Clientes', icon: faUsers },
+    { label: 'Contatos', icon: faAddressBook },
   ] },
   { label: 'Comercial', items: [
-    { label: 'Propostas', icon: FileText },
-    { label: 'Contratos', icon: BriefcaseBusiness },
+    { label: 'Propostas', icon: faFileSignature },
+    { label: 'Contratos', icon: faFileContract },
   ] },
   { label: 'Operações', items: [
-    { label: 'Projetos', icon: FolderKanban },
-    { label: 'Tarefas', icon: ClipboardList },
-    { label: 'Solicitações de alteração', icon: ClipboardList },
-    { label: 'Suporte', icon: Headphones },
+    { label: 'Projetos', icon: faDiagramProject },
+    { label: 'Tarefas', icon: faListCheck },
+    { label: 'Solicitações de alteração', icon: faCodePullRequest },
+    { label: 'Suporte', icon: faHeadset },
   ] },
   { label: 'Produtos', items: [
-    { label: 'Sistemas dos clientes', icon: Gauge },
-    { label: 'Módulos', icon: PanelsTopLeft },
-    { label: 'Planos', icon: WalletCards },
-    { label: 'Licenças', icon: ShieldCheck },
+    { label: 'Sistemas dos clientes', icon: faServer },
+    { label: 'Módulos', icon: faPuzzlePiece },
+    { label: 'Planos', icon: faLayerGroup },
+    { label: 'Licenças', icon: faKey },
   ] },
   { label: 'Financeiro', items: [
-    { label: 'Contas a receber', icon: CircleDollarSign },
-    { label: 'Contas a pagar', icon: CircleDollarSign },
-    { label: 'Fluxo de caixa', icon: CircleDollarSign },
-    { label: 'Transações', icon: CircleDollarSign },
-    { label: 'Categorias financeiras', icon: CircleDollarSign },
+    { label: 'Contas a receber', icon: faArrowTrendUp },
+    { label: 'Contas a pagar', icon: faArrowTrendDown },
+    { label: 'Fluxo de caixa', icon: faChartLine },
+    { label: 'Transações', icon: faArrowTrendUp },
+    { label: 'Categorias financeiras', icon: faChartPie },
   ] },
   { label: 'Administração', items: [
-    { label: 'Relatórios', icon: Activity },
-    { label: 'Equipe', icon: Users },
-    { label: 'Usuários', icon: Users },
-    { label: 'Papéis e permissões', icon: ShieldCheck },
-    { label: 'Auditoria', icon: Activity },
+    { label: 'Relatórios', icon: faChartPie },
+    { label: 'Equipe', icon: faUsers },
+    { label: 'Usuários', icon: faUserGear },
+    { label: 'Papéis e permissões', icon: faUserShield },
+    { label: 'Emblemas', icon: faMedal },
+    { label: 'Configuração de XP', icon: faSliders },
+    { label: 'Auditoria', icon: faClockRotateLeft }
   ] },
   { label: 'Conta', items: [
-    { label: 'Meu perfil', icon: Users },
-    { label: 'Meu histórico', icon: Activity },
-    { label: 'Configurações', icon: Settings },
-    { label: 'Aparência', icon: PanelsTopLeft },
+    { label: 'Meu perfil', icon: faUserCircle },
+    { label: 'Meu histórico', icon: faClockRotateLeft },
+    { label: 'Configurações', icon: faGear },
+    { label: 'Aparência', icon: faPalette },
   ] },
 ]
 
 const sectionSlugs: Record<string, string> = {
-  Dashboard: 'dashboard', Leads: 'leads', Clientes: 'clientes', Contatos: 'contatos', Propostas: 'propostas', Contratos: 'contratos',
+  Dashboard: 'dashboard', 'Visão comercial': 'comercial', Documentos: 'documentos', Leads: 'leads', Clientes: 'clientes', Contatos: 'contatos', Propostas: 'propostas', Contratos: 'contratos',
   Projetos: 'projetos', Tarefas: 'tarefas', 'Solicitações de alteração': 'solicitacoes', Suporte: 'suporte', 'Sistemas dos clientes': 'sistemas',
   Módulos: 'modulos', Planos: 'planos', Licenças: 'licencas', 'Contas a receber': 'contas-a-receber', 'Contas a pagar': 'contas-a-pagar',
   'Fluxo de caixa': 'fluxo-de-caixa', Transações: 'transacoes', 'Categorias financeiras': 'categorias-financeiras', Relatórios: 'relatorios', Equipe: 'equipe',
-  Usuários: 'usuarios', 'Papéis e permissões': 'papeis-e-permissoes', 'Meu perfil': 'meu-perfil', 'Meu histórico': 'meu-historico', Configurações: 'configuracoes', Aparência: 'aparencia', Auditoria: 'auditoria',
+  Usuários: 'usuarios', 'Papéis e permissões': 'papeis-e-permissoes', Emblemas: 'emblemas', 'Configuração de XP': 'configuracao-xp', 'Meu perfil': 'meu-perfil', 'Meu histórico': 'meu-historico', Configurações: 'configuracoes', Aparência: 'aparencia', Auditoria: 'auditoria',
 }
 
 const metrics = [
-  { label: 'Leads ativos', value: '0', hint: 'Nenhum lead cadastrado', icon: Inbox, tone: 'blue' },
-  { label: 'Clientes ativos', value: '0', hint: 'Nenhum cliente cadastrado', icon: Building2, tone: 'violet' },
-  { label: 'Projetos em andamento', value: '0', hint: 'Nenhum projeto cadastrado', icon: FolderKanban, tone: 'cyan' },
-  { label: 'Chamados abertos', value: '0', hint: 'Nenhum chamado aberto', icon: Headphones, tone: 'amber' },
-  { label: 'Contratos ativos', value: '0', hint: 'Nenhum contrato cadastrado', icon: BriefcaseBusiness, tone: 'emerald' },
-  { label: 'Valores a receber', value: 'R$ 0,00', hint: 'Nenhum lançamento pendente', icon: CircleDollarSign, tone: 'teal' },
-  { label: 'Valores vencidos', value: 'R$ 0,00', hint: 'Nenhum lançamento vencido', icon: WalletCards, tone: 'rose' },
-  { label: 'Receita no mês', value: 'R$ 0,00', hint: 'Nenhum recebimento registrado', icon: CircleDollarSign, tone: 'indigo' },
+  { label: 'Leads ativos', value: '0', hint: 'Nenhum lead cadastrado', icon: faUserPlus, tone: 'blue' },
+  { label: 'Clientes ativos', value: '0', hint: 'Nenhum cliente cadastrado', icon: faUsers, tone: 'violet' },
+  { label: 'Projetos em andamento', value: '0', hint: 'Nenhum projeto cadastrado', icon: faDiagramProject, tone: 'cyan' },
+  { label: 'Chamados abertos', value: '0', hint: 'Nenhum chamado aberto', icon: faHeadset, tone: 'amber' },
+  { label: 'Contratos ativos', value: '0', hint: 'Nenhum contrato cadastrado', icon: faFileContract, tone: 'emerald' },
+  { label: 'Valores a receber', value: 'R$ 0,00', hint: 'Nenhum lançamento pendente', icon: faArrowTrendUp, tone: 'teal' },
+  { label: 'Valores vencidos', value: 'R$ 0,00', hint: 'Nenhum lançamento vencido', icon: faArrowTrendDown, tone: 'rose' },
+  { label: 'Receita no mês', value: 'R$ 0,00', hint: 'Nenhum recebimento registrado', icon: faChartLine, tone: 'indigo' },
 ]
 
 const toneClasses: Record<string, string> = {
@@ -125,38 +134,73 @@ const toneClasses: Record<string, string> = {
 
 type WorkspaceNotification = { id: string; message: string; notification_type: string; entity_type?: string | null; entity_id?: string | null; link_path?: string | null; read_at: string | null; created_at: string }
 type SearchItem = { label: string; slug: string; group: string }
+type DashboardRankingMember = { id: string; full_name: string; role_name: string; xp: number; level: number; milestone_name?: string }
+type DashboardData = { team: number; clients: number; projects: number; tickets: number; contracts: number; messages: number; ranking: DashboardRankingMember[] }
 
 function DashboardContent({ initialSection = 'Dashboard', page, permissions, profileName = '' }: { initialSection?: string; page?: ReactNode; permissions: string[]; profileName?: string }) {
   const router = useRouter()
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [openNavGroups, setOpenNavGroups] = useState<Set<string>>(() => new Set(['Workspace']))
   const [activeSection, setActiveSection] = useState(initialSection)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [assistantOpen, setAssistantOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [notifications, setNotifications] = useState<WorkspaceNotification[]>([])
   const [notificationsLoading, setNotificationsLoading] = useState(false)
   const [notificationsError, setNotificationsError] = useState('')
   const [actionableNotificationIds, setActionableNotificationIds] = useState<string[]>([])
+  const [dashboardData, setDashboardData] = useState<DashboardData>({ team: 0, clients: 0, projects: 0, tickets: 0, contracts: 0, messages: 0, ranking: [] })
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState('')
+  const [profileNickname, setProfileNickname] = useState('')
   const searchInput = useRef<HTMLInputElement>(null)
   const displayName = profileName.trim() || 'Usuário'
-  const initials = displayName.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()
+  const avatarUser = { fullName: displayName, nickname: profileNickname, avatarUrl: profileAvatarUrl }
 
   useEffect(() => {
     setActiveSection(initialSection)
   }, [initialSection, pathname])
 
   useEffect(() => {
-    const applySavedTheme = () => applyWorkspaceTheme(getWorkspaceThemePreference())
-    applySavedTheme()
+    let active = true
+    void fetch('/api/workspace/profile', { cache: 'no-store' }).then(async (response) => {
+      if (!response.ok || !active) return
+      const data = await response.json() as { avatarUrl?: string; nickname?: string }
+      if (active) {
+        setProfileAvatarUrl(data.avatarUrl ?? '')
+        setProfileNickname(data.nickname ?? '')
+      }
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    const loadAppearance = async () => {
+      const { data } = await createClient().from('user_preferences').select('theme,primary_color,secondary_color,tertiary_color,background_color,surface_color,sidebar_color,header_color,text_color,muted_text_color,border_color,focus_color,font_size_base,heading_scale,font_weight,line_height,letter_spacing,button_radius,card_radius,shadow_strength,appearance_palette,accent_color,font_family,radius_scale,contrast_mode,motion_mode,navigation_collapsed,table_density').maybeSingle()
+      if (!active) return
+      if (data) applyWorkspaceAppearance({ ...defaultAppearance, ...(data as Partial<WorkspaceAppearance>) })
+      else applyWorkspaceTheme(getWorkspaceThemePreference())
+    }
+    void loadAppearance()
     const colorScheme = window.matchMedia('(prefers-color-scheme: light)')
     const onSystemThemeChange = () => {
-      if (getWorkspaceThemePreference() === 'system') applySavedTheme()
+      if (getWorkspaceThemePreference() === 'system') applyWorkspaceTheme('system')
     }
     colorScheme.addEventListener('change', onSystemThemeChange)
-    return () => colorScheme.removeEventListener('change', onSystemThemeChange)
+    return () => { active = false; colorScheme.removeEventListener('change', onSystemThemeChange) }
   }, [])
+
+  useEffect(() => {
+    if (activeSection !== 'Dashboard') return
+    void fetch('/api/workspace/dashboard', { cache: 'no-store' }).then(async (response) => {
+      if (!response.ok) return
+      const data = await response.json() as { metrics?: { team?: number; clients?: number; projects?: number; tickets?: number; contracts?: number; messages?: number }; ranking?: DashboardRankingMember[] }
+      setDashboardData({ team: data.metrics?.team ?? 0, clients: data.metrics?.clients ?? 0, projects: data.metrics?.projects ?? 0, tickets: data.metrics?.tickets ?? 0, contracts: data.metrics?.contracts ?? 0, messages: data.metrics?.messages ?? 0, ranking: data.ranking ?? [] })
+    })
+  }, [activeSection])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -164,6 +208,7 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
         event.preventDefault()
         setSearchOpen(true)
       } else if (event.key === 'Escape') {
+        setAssistantOpen(false)
         setSearchOpen(false)
         setNotificationsOpen(false)
       }
@@ -193,7 +238,7 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
         const user = (await createClient().auth.getUser()).data.user
         if (user) {
           const loadedNotifications = (data ?? []) as WorkspaceNotification[]
-        const taskIds = loadedNotifications.filter((item: WorkspaceNotification) => item.notification_type === 'task_share' || item.notification_type === 'task_transfer').map((item: WorkspaceNotification) => item.entity_id).filter(Boolean)
+        const taskIds = loadedNotifications.filter((item: WorkspaceNotification) => ['task_share_request', 'task_transfer_request', 'task_share', 'task_transfer'].includes(item.notification_type)).map((item: WorkspaceNotification) => item.entity_id).filter(Boolean)
           const pending = taskIds.length ? await createClient().from('task_transfer_requests').select('task_id').eq('target_id', user.id).eq('status', 'pending').in('task_id', taskIds) : { data: [] }
           setActionableNotificationIds(((pending.data ?? []) as { task_id: string }[]).map((item) => loadedNotifications.find((notification: WorkspaceNotification) => notification.entity_id === item.task_id)?.id).filter(Boolean) as string[])
         }
@@ -239,19 +284,13 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
     const { data: userData } = await supabase.auth.getUser()
     const userId = userData.user?.id
     if (!userId) return
-    const { data: request } = await supabase.from('task_transfer_requests').select('id,requester_id,request_type').eq('task_id', notification.entity_id).eq('target_id', userId).eq('status', 'pending').order('created_at', { ascending: false }).maybeSingle()
-    if (!request) return
-    const { error } = await supabase.from('task_transfer_requests').update({ status, responded_at: new Date().toISOString() }).eq('id', request.id).eq('target_id', userId)
-    if (error) return
-    if (status === 'accepted') {
-      if (request.request_type === 'transfer') await supabase.from('project_tasks').update({ responsible_id: userId }).eq('id', notification.entity_id)
-      else {
-        const { data: task } = await supabase.from('project_tasks').select('participants').eq('id', notification.entity_id).maybeSingle()
-        const participants = Array.isArray(task?.participants) ? task.participants : []
-        await supabase.from('project_tasks').update({ participants: Array.from(new Set([...participants, userId])) }).eq('id', notification.entity_id)
-      }
+    const { data: request, error: requestError } = await supabase.from('task_transfer_requests').select('id').eq('task_id', notification.entity_id).eq('target_id', userId).eq('status', 'pending').order('created_at', { ascending: false }).maybeSingle()
+    if (requestError || !request) return
+    const { error } = await supabase.rpc('respond_task_transfer_request', { p_request_id: request.id, p_status: status })
+    if (error) {
+      setNotificationsError('Não foi possível responder à solicitação de tarefa.')
+      return
     }
-    await supabase.from('notifications').insert({ recipient_id: request.requester_id, notification_type: `task_${status}`, message: `Sua solicitação de ${request.request_type === 'share' ? 'compartilhamento' : 'transferência'} foi ${status === 'accepted' ? 'aceita' : 'recusada'}.`, entity_type: 'task', entity_id: notification.entity_id, link_path: notification.link_path })
     await markNotificationRead(notification)
     await loadNotifications()
   }
@@ -302,18 +341,18 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
             if (!visibleItems.length) return null
             return (
             <div key={group.label} role="group" aria-label={group.label}>
-              {!collapsed && <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{group.label}</p>}
-              <div className="flex flex-col gap-0.5">
+              {!collapsed ? <button type="button" onClick={() => setOpenNavGroups((current) => { const next = new Set(current); if (next.has(group.label)) next.delete(group.label); else next.add(group.label); return next })} className="mb-1 flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 hover:bg-white/[0.04] hover:text-slate-300"><span>{group.label}</span><ChevronDown className={`size-3 transition-transform ${openNavGroups.has(group.label) ? 'rotate-180' : ''}`} /></button> : null}
+              {(collapsed || openNavGroups.has(group.label)) && <div className="flex flex-col gap-0.5">
                 {visibleItems.map((item) => {
-                  const Icon = item.icon
+                  const icon = item.icon
                   const isActive = activeSection === item.label
-                  return <button key={item.label} onClick={() => openSection(item.label)} className={`group relative flex min-h-10 items-center gap-3 rounded-lg border-l-2 px-3 py-2 text-left text-[13px] transition-colors ${isActive ? 'border-blue-400 bg-blue-400/10 font-medium text-blue-200' : 'border-transparent text-slate-400 hover:bg-white/[0.04] hover:text-slate-100'} ${collapsed ? 'justify-center px-0' : ''}`} title={collapsed ? item.label : undefined} aria-current={isActive ? 'page' : undefined}><Icon className={`size-[17px] shrink-0 ${isActive ? 'text-blue-300' : 'text-slate-500 group-hover:text-slate-300'}`} />{!collapsed && <span className="truncate">{item.label}</span>}</button>
+                  return <button key={item.label} onClick={() => openSection(item.label)} className={`group relative flex min-h-10 items-center gap-3 rounded-lg border-l-2 px-3 py-2 text-left text-[13px] transition-colors ${isActive ? 'border-blue-400 bg-blue-400/10 font-medium text-blue-200' : 'border-transparent text-slate-400 hover:bg-white/[0.04] hover:text-slate-100'} ${collapsed ? 'justify-center px-0' : ''}`} title={collapsed ? item.label : undefined} aria-current={isActive ? 'page' : undefined}><FontAwesomeIcon icon={icon} className={`size-3.5 shrink-0 ${isActive ? 'text-blue-300' : 'text-slate-500 group-hover:text-slate-300'}`} />{!collapsed && <span className="truncate">{item.label}</span>}</button>
                 })}
-              </div>
+              </div>}
             </div>
           )})}
         </nav>
-        {!collapsed && <button onClick={() => openSection('Meu perfil')} className="border-t border-white/[0.07] p-3 text-left"><span className="flex items-center gap-3 rounded-lg p-2"><span className="grid size-8 shrink-0 place-items-center rounded-full bg-slate-700 text-xs font-semibold text-slate-200">{initials}</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-slate-200">{displayName}</span><span className="block truncate text-[11px] text-slate-500">Meu perfil</span></span></span></button>}
+        {!collapsed && <button onClick={() => openSection('Meu perfil')} className="border-t border-white/[0.07] p-3 text-left"><span className="flex items-center gap-3 rounded-lg p-2"><UserAvatar user={avatarUser} size="sm" /><span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-slate-200">{displayName}</span><span className="block truncate text-[11px] text-slate-500">Meu perfil</span></span></span></button>}
       </aside>
       {mobileOpen && <button className="fixed inset-0 z-30 bg-black/60 lg:hidden" onClick={() => setMobileOpen(false)} aria-label="Fechar menu" />}
       <div className={`transition-[margin] duration-200 ${collapsed ? 'lg:ml-[78px]' : 'lg:ml-[258px]'}`}>
@@ -342,7 +381,7 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
             </div>
             <div className="mx-1 h-5 w-px bg-white/10" />
             <button onClick={() => openSection('Meu perfil')} className="flex items-center gap-2 rounded-lg p-1.5 pr-2 hover:bg-white/5" aria-label={`Perfil de ${displayName}`}>
-              <span className="grid size-7 place-items-center rounded-full bg-blue-500/20 text-[10px] font-bold text-blue-300">{initials}</span>
+              <UserAvatar user={avatarUser} size="sm" />
               <span className="hidden max-w-32 truncate text-xs text-slate-300 sm:block">{displayName}</span>
               <ChevronDown className="size-3.5 text-slate-500" />
             </button>
@@ -350,7 +389,7 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
           </div>
         </header>
         <main className="workspace-main mx-auto w-full max-w-[1500px] overflow-x-hidden px-3 py-5 sm:px-7 sm:py-7 lg:px-9">{page ?? <>{activeSection === 'Dashboard' &&         <div id="dashboard-overview" className="scroll-mt-24"><div className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><p className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-blue-400">Visão geral</p><h1 className="text-2xl font-semibold tracking-tight text-white sm:text-[28px]">Olá, {displayName}</h1><p className="mt-1.5 text-sm text-slate-500">Acompanhe as áreas permitidas para você.</p></div>{permissions.includes('*') && <button className="flex w-fit items-center gap-2 rounded-lg bg-blue-500 px-3.5 py-2.5 text-xs font-semibold text-white shadow-lg shadow-blue-500/15 transition-colors hover:bg-blue-400"><Plus className="size-4" />Adicionar registro</button>}</div>
-          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">{metrics.filter((metric) => {
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">{metrics.map((metric) => ({ ...metric, value: metric.label === 'Clientes ativos' ? String(dashboardData.clients) : metric.label === 'Projetos em andamento' ? String(dashboardData.projects) : metric.label === 'Chamados abertos' ? String(dashboardData.tickets) : metric.label === 'Contratos ativos' ? String(dashboardData.contracts) : metric.value, hint: metric.label === 'Clientes ativos' ? 'Membros ativos no workspace' : metric.label === 'Chamados abertos' ? 'Mensagens novas para triagem' : metric.hint })).filter((metric) => {
             const metricPermission: Record<string, string> = {
               'Leads ativos': 'leads:view', 'Clientes ativos': 'clients:view', 'Projetos em andamento': 'projects:view',
               'Chamados abertos': 'support:view', 'Contratos ativos': 'contracts:view',
@@ -358,21 +397,24 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
               'Receita no mês': 'finance:view',
             }
             return permissions.includes('*') || permissions.includes(metricPermission[metric.label])
-          }).map((metric) => { const Icon = metric.icon; return <article key={metric.label} className="rounded-xl border border-white/[0.07] bg-[#11161e] p-4 transition-colors hover:border-white/[0.12]"><div className="flex items-start justify-between"><div className={`grid size-9 place-items-center rounded-lg ${toneClasses[metric.tone]}`}><Icon className="size-[17px]" /></div><button aria-label={`Mais opções de ${metric.label}`} className="text-slate-600 hover:text-slate-300"><MoreHorizontal className="size-4" /></button></div><p className="mt-4 text-xs text-slate-500">{metric.label}</p><p className="mt-1 text-xl font-semibold tracking-tight text-slate-100">{metric.value}</p><p className="mt-1 text-[11px] text-slate-600">{metric.hint}</p></article> })}</section>
+          }).map((metric) => { const icon = metric.icon; return <article key={metric.label} className="rounded-xl border border-white/[0.07] bg-[#11161e] p-4 transition-colors hover:border-white/[0.12]"><div className="flex items-start justify-between"><div className={`grid size-9 place-items-center rounded-lg ${toneClasses[metric.tone]}`}><FontAwesomeIcon icon={icon} className="size-4" /></div><button aria-label={`Mais opções de ${metric.label}`} className="text-slate-600 hover:text-slate-300"><MoreHorizontal className="size-4" /></button></div><p className="mt-4 text-xs text-slate-500">{metric.label}</p><p className="mt-1 text-xl font-semibold tracking-tight text-slate-100">{metric.value}</p><p className="mt-1 text-[11px] text-slate-600">{metric.hint}</p></article> })}</section>
           <section className="mt-6 grid gap-6 xl:grid-cols-[1.45fr_1fr]"><div className="rounded-xl border border-white/[0.07] bg-[#11161e]"><div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4"><div><h2 className="text-sm font-semibold text-slate-200">Atividade recente</h2><p className="mt-0.5 text-xs text-slate-500">Acompanhe as últimas ações do workspace</p></div><button className="text-xs font-medium text-blue-400 hover:text-blue-300">Ver histórico</button></div><div className="flex min-h-[220px] flex-col items-center justify-center px-6 text-center"><div className="mb-3 grid size-11 place-items-center rounded-full border border-white/[0.08] bg-white/[0.03]"><Activity className="size-5 text-slate-600" /></div><p className="text-sm font-medium text-slate-400">Nenhuma atividade registrada</p><p className="mt-1 max-w-xs text-xs leading-5 text-slate-600">As ações da sua equipe aparecerão aqui quando os primeiros registros forem criados.</p></div></div><div className="rounded-xl border border-white/[0.07] bg-[#11161e]"><div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4"><div><h2 className="text-sm font-semibold text-slate-200">Próximos vencimentos</h2><p className="mt-0.5 text-xs text-slate-500">Compromissos financeiros e contratuais</p></div><button className="text-slate-600 hover:text-slate-300" aria-label="Mais opções"><MoreHorizontal className="size-4" /></button></div><div className="flex min-h-[220px] flex-col items-center justify-center px-6 text-center"><div className="mb-3 grid size-11 place-items-center rounded-full border border-white/[0.08] bg-white/[0.03]"><WalletCards className="size-5 text-slate-600" /></div><p className="text-sm font-medium text-slate-400">Tudo em dia</p><p className="mt-1 max-w-xs text-xs leading-5 text-slate-600">Nenhum vencimento encontrado para os próximos dias.</p></div></div></section>
+          <section className="mt-6 rounded-xl border border-white/[0.07] bg-[#11161e]"><div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4"><div className="flex items-center gap-3"><div className="grid size-9 place-items-center rounded-lg bg-amber-400/10 text-amber-300"><FontAwesomeIcon icon={faTrophy} className="size-4" /></div><div><h2 className="text-sm font-semibold text-slate-200">Ranking da empresa</h2><p className="mt-0.5 text-xs text-slate-500">Evolução da equipe por XP e nível</p></div></div><span className="text-xs text-slate-500">Atualizado agora</span></div><div className="divide-y divide-white/[0.06]">{dashboardData.ranking.length ? dashboardData.ranking.map((member, index) => <div key={member.id} className="flex items-center gap-3 px-5 py-3"><span className={`grid size-7 place-items-center rounded-lg text-xs font-semibold ${index === 0 ? 'bg-amber-300/15 text-amber-200' : 'bg-white/[.04] text-slate-400'}`}>{index + 1}</span><div className="min-w-0 flex-1"><p className="truncate text-xs font-medium text-slate-200">{member.full_name}</p><p className="text-[10px] text-slate-500">{member.role_name} · nível {member.level} · marco: {member.milestone_name ?? 'Iniciante'}</p></div><span className="text-xs font-semibold text-cyan-300">{member.xp} XP</span></div>) : <div className="flex min-h-[150px] items-center justify-center px-6 text-center"><p className="text-xs text-slate-600">Adicione XP à equipe para formar o ranking.</p></div>}</div></section>
           <section className="mt-6 rounded-xl border border-white/[0.07] bg-[#11161e]"><div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4"><div><h2 className="text-sm font-semibold text-slate-200">Projetos por status</h2><p className="mt-0.5 text-xs text-slate-500">Distribuição dos projetos ativos</p></div><button className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300">Este mês <ChevronDown className="size-3.5" /></button></div><div className="flex min-h-[150px] items-center justify-center px-6 text-center"><p className="text-xs text-slate-600">Cadastre projetos para visualizar a distribuição por status.</p></div></section>
           </div>}
           {['Leads', 'Mensagens', 'Clientes'].includes(activeSection) && <div id="crm-workspace" className="scroll-mt-24"><CrmWorkspace initialModule={activeSection === 'Clientes' ? 'clients' : activeSection === 'Mensagens' ? 'messages' : 'leads'} permissions={permissions} /></div>}
           {['Propostas', 'Contratos'].includes(activeSection) && <div id="commercial-workspace" className="scroll-mt-24"><CommercialWorkspace initialTab={activeSection === 'Contratos' ? 'contracts' : 'proposals'} permissions={permissions} /></div>}
           {['Projetos', 'Solicitações de alteração', 'Suporte'].includes(activeSection) && <div id="operations-workspace" className="scroll-mt-24"><OperationsWorkspace permissions={permissions} initialModule={activeSection === 'Suporte' ? 'support_tickets' : activeSection === 'Solicitações de alteração' ? 'change_requests' : 'projects'} /></div>}
           {['Sistemas dos clientes', 'Módulos'].includes(activeSection) && <div id="catalog-workspace" className="scroll-mt-24"><CatalogWorkspace initialTab={activeSection === 'Módulos' ? 'modules' : 'systems'} /></div>}
-          {['Contas a receber', 'Contas a pagar', 'Fluxo de caixa', 'Transações', 'Categorias financeiras'].includes(activeSection) && <div id="finance-workspace" className="scroll-mt-24"><FinanceWorkspace initialTab={activeSection === 'Contas a receber' ? 'receivable' : activeSection === 'Contas a pagar' ? 'payable' : 'overview'} permissions={permissions} /></div>}
+          {['Contas a receber', 'Contas a pagar', 'Fluxo de caixa', 'Transações', 'Categorias financeiras'].includes(activeSection) && <div id="finance-workspace" className="scroll-mt-24"><FinanceWorkspace initialTab={activeSection === 'Contas a receber' ? 'receivable' : activeSection === 'Contas a pagar' ? 'payable' : activeSection === 'Fluxo de caixa' ? 'cashflow' : 'overview'} permissions={permissions} /></div>}
           {activeSection === 'Relatórios' && <div id="reports-workspace" className="scroll-mt-24"><ReportsWorkspace permissions={permissions} /></div>}
           {['Equipe', 'Configurações'].includes(activeSection) && <div id="admin-workspace" className="scroll-mt-24"><AdminWorkspace section={activeSection} permissions={permissions} /></div>}
-          {activeSection === 'Auditoria' && <ActivityHistoryWorkspace permissions={permissions} mode="audit" />}
+          {activeSection === 'Configuração de XP' && <XpSettingsWorkspace />}
+  {activeSection === 'Auditoria' && <ActivityHistoryWorkspace permissions={permissions} mode="audit" />}
           {activeSection === 'Meu histórico' && <ActivityHistoryWorkspace permissions={permissions} mode="personal" />}
-          {['Meu perfil', 'Aparência'].includes(activeSection) && <AccountWorkspace section={activeSection} initialName={profileName} />}
-          {!['Dashboard', 'Leads', 'Mensagens', 'Clientes', 'Propostas', 'Contratos', 'Projetos', 'Solicitações de alteração', 'Suporte', 'Sistemas', 'Módulos', 'Planos', 'Licenças', 'Financeiro', 'Equipe', 'Relatórios', 'Configurações', 'Auditoria', 'Meu histórico'].includes(activeSection) && <section className="rounded-xl border border-white/[0.07] bg-[#11161e] p-8"><p className="text-xs font-medium uppercase tracking-[0.16em] text-blue-400">Módulo</p><h1 className="mt-2 text-2xl font-semibold text-white">{activeSection}</h1><p className="mt-2 text-sm text-slate-500">Esta página está preparada para receber os registros deste módulo.</p></section>}
+          {activeSection === 'Meu perfil' && <GamifiedProfileWorkspace initialName={profileName} />}
+  {activeSection === 'Aparência' && <AccountWorkspace section={activeSection} initialName={profileName} />}
+          {!['Dashboard', 'Leads', 'Mensagens', 'Clientes', 'Propostas', 'Contratos', 'Projetos', 'Solicitações de alteração', 'Suporte', 'Sistemas', 'Módulos', 'Planos', 'Licenças', 'Financeiro', 'Equipe', 'Relatórios', 'Configurações', 'Auditoria', 'Meu histórico', 'Emblemas', 'Configuração de XP'].includes(activeSection) && <section className="rounded-xl border border-white/[0.07] bg-[#11161e] p-8"><p className="text-xs font-medium uppercase tracking-[0.16em] text-blue-400">Módulo</p><h1 className="mt-2 text-2xl font-semibold text-white">{activeSection}</h1><p className="mt-2 text-sm text-slate-500">Esta página está preparada para receber os registros deste módulo.</p></section>}
           </>}
           <div className="mt-7 flex items-center gap-2 text-[11px] text-slate-600"><div className="size-1.5 rounded-full bg-amber-400" />Supabase conectado · CRM pronto para seus primeiros registros.</div>
         </main>
@@ -380,6 +422,8 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
       {searchOpen && <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/65 px-4 pt-[12vh]" onMouseDown={(event) => { if (event.target === event.currentTarget) setSearchOpen(false) }}>
         <section role="dialog" aria-modal="true" aria-label="Buscar módulos" className="w-full max-w-xl overflow-hidden rounded-xl border border-white/[0.1] bg-[#11161e] shadow-2xl">
           <div className="flex items-center gap-3 border-b border-white/[0.08] px-4"><Search className="size-4 text-slate-500" /><input ref={searchInput} value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Buscar módulo..." className="h-14 flex-1 bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-500" /><kbd className="rounded border border-white/10 px-2 py-1 text-[10px] text-slate-500">ESC</kbd></div>
+          <button type="button" onClick={() => setAssistantOpen((current) => !current)} className="flex w-full items-center gap-3 border-b border-white/[0.07] px-4 py-3 text-left hover:bg-blue-500/10"><span className="grid size-7 place-items-center rounded-lg bg-blue-500/15 text-blue-300"><Sparkles className="size-3.5" /></span><span className="flex-1"><span className="block text-xs font-semibold text-slate-200">Perguntar ao assistente</span><span className="block text-[10px] text-slate-500">Use IA para navegar e entender o workspace</span></span><kbd className="rounded border border-white/10 px-2 py-1 text-[10px] text-slate-500">IA</kbd></button>
+          {assistantOpen && <CommandAssistant context={`Módulo atual: ${activeSection}. Permissões disponíveis: ${permissions.join(', ') || 'nenhuma informada'}.`} onClose={() => setAssistantOpen(false)} />}
           <div className="max-h-[55vh] overflow-y-auto p-2">
             {matchingSearchItems.length ? matchingSearchItems.map((item) => <button key={item.slug} onClick={() => openSearchItem(item)} className="flex w-full items-center justify-between rounded-lg px-3 py-3 text-left text-sm text-slate-200 hover:bg-blue-500/10 hover:text-blue-200"><span>{item.label}</span><span className="text-[11px] text-slate-500">{item.group}</span></button>)
               : <p className="px-3 py-8 text-center text-sm text-slate-500">Nenhum módulo encontrado.</p>}

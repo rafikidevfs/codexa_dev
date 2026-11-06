@@ -91,7 +91,7 @@ export function ProjectListWorkspace({ onSwitchModule, permissions }: { onSwitch
       supabase.from('project_tasks').select('id,project_id,status,due_date').order('created_at', { ascending: true }),
       supabase.from('clients').select('id,legal_name,trade_name').order('legal_name'),
       supabase.from('team_members').select('id,user_id,full_name,email,status').order('full_name'),
-      authData.user ? supabase.from('project_tasks').select('id,project_id,title,status,due_date,received_from_user_id,received_via').is('project_id', null).or(`responsible_id.eq.${authData.user.id},participants.cs.{${authData.user.id}}`).order('created_at', { ascending: false }) : Promise.resolve({ data: [], error: null }),
+      authData.user ? supabase.from('project_tasks').select('id,project_id,title,status,due_date,received_from_user_id,received_via').or(`responsible_id.eq.${authData.user.id},participants.cs.{${authData.user.id}}`).order('created_at', { ascending: false }) : Promise.resolve({ data: [], error: null }),
     ])
 
     const failed = projectResult.error || taskResult.error
@@ -104,7 +104,8 @@ export function ProjectListWorkspace({ onSwitchModule, permissions }: { onSwitch
     const auxiliaryErrors = [clientResult.error, memberResult.error].filter(Boolean).map((item) => item.message)
     setProjects((projectResult.data ?? []) as Project[])
     setTasks((taskResult.data ?? []) as ProjectTask[])
-    setReceivedTasks((receivedResult.data ?? []) as ProjectTask[])
+    const visibleProjectIds = new Set((projectResult.data ?? []).map((project: Project) => project.id))
+    setReceivedTasks(((receivedResult.data ?? []) as ProjectTask[]).filter((task) => !task.project_id || !visibleProjectIds.has(task.project_id)))
     setClients((clientResult.data ?? []) as Client[])
     setMembers((memberResult.data ?? []) as TeamMember[])
     if (auxiliaryErrors.length) setError(auxiliaryErrors.join(' · '))
@@ -184,7 +185,7 @@ export function ProjectListWorkspace({ onSwitchModule, permissions }: { onSwitch
 
   const statusOptions = [...new Set(projects.map((project) => project.status).filter(Boolean))]
   const priorityOptions = [...new Set(projects.map((project) => project.priority).filter(Boolean))]
-  const activeMembers = members.filter(isActiveMember)
+  const activeMembers = Array.from(new Map(members.filter(isActiveMember).map((member) => [member.user_id || member.id, member])).values())
   const canCreateProjects = permissions.includes('*') || permissions.includes('projects:create')
   const availableModuleTabs = moduleTabs.filter(({ key }) => hasWorkspaceAccess(permissions, key === 'support_tickets' ? 'suporte' : key === 'change_requests' ? 'solicitacoes' : 'projetos'))
 
@@ -238,7 +239,7 @@ export function ProjectListWorkspace({ onSwitchModule, permissions }: { onSwitch
       </div>
 
       {error && <div role="alert" className="flex items-start justify-between gap-3 rounded-lg border border-rose-400/20 bg-rose-400/5 px-4 py-3 text-sm text-rose-200"><span>{error}</span><button onClick={() => setError('')} aria-label="Fechar aviso"><X className="size-4" /></button></div>}
-      {receivedTasks.length > 0 && <section className="rounded-xl border border-violet-400/20 bg-violet-400/5 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-sm font-semibold text-violet-100">Atividades recebidas</h2><p className="mt-1 text-xs text-violet-200/70">Tasks compartilhadas ou transferidas, sem vínculo ao projeto original.</p></div><span className="rounded-full bg-violet-400/15 px-2 py-1 text-xs text-violet-200">{receivedTasks.length}</span></div><div className="mt-3 grid gap-2 sm:grid-cols-2">{receivedTasks.map((task) => <div key={task.id} className="rounded-lg border border-violet-300/10 bg-[#11161e] p-3"><div className="flex items-start justify-between gap-2"><p className="text-sm font-medium text-slate-100">{task.title || 'Atividade recebida'}</p><span className="shrink-0 rounded bg-violet-400/10 px-2 py-1 text-[10px] text-violet-200">{task.received_via?.includes('transfer') ? 'Transferida' : 'Compartilhada'}</span></div><p className="mt-2 text-xs text-slate-400">Disponível no seu kanban pessoal · {task.status}</p></div>)}</div></section>}
+      {receivedTasks.length > 0 && <section className="rounded-xl border border-violet-400/20 bg-violet-400/5 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-sm font-semibold text-violet-100">Atividades recebidas</h2><p className="mt-1 text-xs text-violet-200/70">Acesso individual à tarefa; isso não libera o projeto inteiro.</p></div><span className="rounded-full bg-violet-400/15 px-2 py-1 text-xs text-violet-200">{receivedTasks.length}</span></div><div className="mt-3 grid gap-2 sm:grid-cols-2">{receivedTasks.map((task) => <div key={task.id} className="rounded-lg border border-violet-300/10 bg-[#11161e] p-3"><div className="flex items-start justify-between gap-2"><p className="text-sm font-medium text-slate-100">{task.title || 'Atividade recebida'}</p><span className="shrink-0 rounded bg-violet-400/10 px-2 py-1 text-[10px] text-violet-200">{task.received_via?.includes('transfer') ? 'Transferida' : 'Compartilhada'}</span></div><p className="mt-2 text-xs text-slate-400">{task.status}</p></div>)}</div></section>}
       {loading ? (
         <div className="flex min-h-48 items-center justify-center rounded-xl border border-white/[0.07] bg-[#11161e] text-sm text-slate-400"><Loader2 className="mr-2 size-4 animate-spin" />Carregando projetos...</div>
       ) : filteredProjects.length === 0 ? (

@@ -13,7 +13,7 @@ export async function GET(_: Request, context: { params: Promise<{ memberId: str
     const actor = await requireWorkspacePermission('roles', 'manage_roles')
     const { memberId } = await context.params
     const { data, error } = await actor.supabase.from('workspace_member_permission_overrides')
-      .select('permission_id,effect,access_permissions(module_name,action_name)').eq('member_id', memberId)
+      .select('permission_id,effect,access_permissions!inner(module_name,action_name,is_active)').eq('member_id', memberId).eq('access_permissions.is_active', true)
     if (error) throw error
     return NextResponse.json({ overrides: data ?? [] }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) { return fail(error) }

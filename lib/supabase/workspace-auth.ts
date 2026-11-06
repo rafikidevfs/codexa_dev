@@ -2,7 +2,7 @@ import 'server-only'
 
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import { normalizeWorkspaceRoleName } from '@/lib/workspace-access'
+import { applyWorkspacePermissionOverrides, normalizeWorkspaceRoleName } from '@/lib/workspace-access'
 import { AdminApiError, createServiceClient } from './server-client'
 
 export type WorkspaceActor = {
@@ -76,27 +76,12 @@ export async function getWorkspacePermissions(actor: WorkspaceActor): Promise<Se
 
   const { data: overrides, error: overridesError } = await actor.supabase
     .from('workspace_member_permission_overrides')
-    .select('effect,access_permissions(module_name,action_name)')
+    .select('effect,access_permissions!inner(module_name,action_name,is_active)')
     .eq('member_id', actor.memberId)
-  if (!overridesError) {
-    const { data: grants, error: grantsError } = await actor.supabase
-      .from('role_permissions')
-      .select('permission_id')
-      .eq('role_id', actor.roleId)
-    if (grantsError) throw new AdminApiError('Não foi possível carregar as permissões.', 503)
-    const ids = (grants ?? []).map((grant) => grant.permission_id)
-    const { data: permissions, error: permissionsError } = ids.length
-      ? await actor.supabase.from('access_permissions').select('module_name,action_name').in('id', ids)
-      : { data: [], error: null }
-    if (permissionsError) throw new AdminApiError('Não foi possível carregar as permissões.', 503)
-    const effective = new Set((permissions ?? []).map((permission) => `${permission.module_name}:${permission.action_name}`))
-    for (const override of overrides ?? []) {
-      const permission = Array.isArray(override.access_permissions) ? override.access_permissions[0] : override.access_permissions
-      const key = permission ? `${permission.module_name}:${permission.action_name}` : ''
-      if (override.effect === 'allow') effective.add(key)
-      if (override.effect === 'deny') effective.delete(key)
-    }
-    return effective
+    .eq('access_permissions.is_active', true)
+  if (overridesError) {
+    console.error('Workspace individual permission lookup failed:', overridesError.message)
+    throw new AdminApiError('Não foi possível validar as exceções individuais de permissão.', 503)
   }
 
   const { data: grants, error: grantsError } = await actor.supabase
@@ -113,12 +98,20 @@ export async function getWorkspacePermissions(actor: WorkspaceActor): Promise<Se
   const { data: permissions, error: permissionsError } = await actor.supabase
     .from('access_permissions')
     .select('module_name,action_name')
+    .eq('is_active', true)
     .in('id', ids)
   if (permissionsError) {
     console.error('Workspace permission catalog lookup failed:', permissionsError.message)
     throw new AdminApiError('Não foi possível carregar as permissões.', 503)
   }
-  return new Set((permissions ?? []).map((permission) => `${permission.module_name}:${permission.action_name}`))
+  const rolePermissions = (permissions ?? []).map((permission) => `${permission.module_name}:${permission.action_name}`)
+  const normalizedOverrides = (overrides ?? []).flatMap((override) => {
+    const permission = Array.isArray(override.access_permissions) ? override.access_permissions[0] : override.access_permissions
+    return permission && (override.effect === 'allow' || override.effect === 'deny')
+      ? [{ module_name: permission.module_name, action_name: permission.action_name, effect: override.effect }]
+      : []
+  })
+  return applyWorkspacePermissionOverrides(rolePermissions, normalizedOverrides)
 }
 
 export async function requireWorkspacePermission(
