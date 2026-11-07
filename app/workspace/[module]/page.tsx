@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { AccessDenied } from '@/components/access-denied'
+import { WorkspaceUnavailable } from '@/components/workspace-unavailable'
 import { WorkspacePageRouter } from '@/components/workspace-page-router'
 import { hasWorkspaceAccess } from '@/lib/workspace-access'
 import { isWorkspaceModule } from '@/lib/workspace-modules'
@@ -16,6 +17,7 @@ export default async function ModulePage({ params }: { params: Promise<{ module:
   } catch (error) {
     if (error instanceof AdminApiError && error.status === 401) return null
     if (error instanceof AdminApiError && error.status === 403) return <AccessDenied />
+    if (error instanceof AdminApiError && error.status === 503) return <WorkspaceUnavailable />
     throw error
   }
 }

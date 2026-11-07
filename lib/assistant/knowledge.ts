@@ -26,7 +26,7 @@ export async function createEmbeddings(texts: string[]): Promise<number[][]> {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
       'HTTP-Referer': process.env.SITE_URL ?? 'https://codexa.dev',
-      'X-Title': 'Codexa Assistant',
+      'X-Title': 'Code-X',
     },
     body: JSON.stringify({
       model: process.env.OPENROUTER_EMBEDDING_MODEL?.trim() || DEFAULT_EMBEDDING_MODEL,
@@ -119,9 +119,9 @@ export async function searchAssistantKnowledge(
     })
     if (error) {
       if (isMissingKnowledgeSchema(error)) {
-        console.info('[Codexa Assistant] knowledge_text_search_unavailable', { code: error.code })
+        console.info('[Code-X] knowledge_text_search_unavailable', { code: error.code })
       } else {
-        console.warn('[Codexa Assistant] knowledge_text_search_failed', { code: error.code })
+        console.warn('[Code-X] knowledge_text_search_failed', { code: error.code })
       }
       return []
     }
@@ -134,10 +134,10 @@ export async function searchAssistantKnowledge(
     .limit(1)
   if (chunksError) {
     if (isMissingKnowledgeSchema(chunksError)) {
-      console.info('[Codexa Assistant] knowledge_schema_not_applied', { code: chunksError.code })
+      console.info('[Code-X] knowledge_schema_not_applied', { code: chunksError.code })
       return []
     }
-    console.warn('[Codexa Assistant] knowledge_access_failed', { code: chunksError.code })
+    console.warn('[Code-X] knowledge_access_failed', { code: chunksError.code })
     return []
   }
 
@@ -149,7 +149,7 @@ export async function searchAssistantKnowledge(
     const embeddings = await createEmbeddings([normalizedQuery])
     embedding = embeddings[0]
   } catch (error) {
-    console.warn('[Codexa Assistant] knowledge_embedding_failed', { errorName: error instanceof Error ? error.name : 'UnknownError' })
+    console.warn('[Code-X] knowledge_embedding_failed', { errorName: error instanceof Error ? error.name : 'UnknownError' })
     return lexicalEntries
   }
 
@@ -162,9 +162,9 @@ export async function searchAssistantKnowledge(
 
   if (error) {
     if (isMissingKnowledgeSchema(error)) {
-      console.info('[Codexa Assistant] knowledge_vector_search_unavailable', { code: error.code })
+      console.info('[Code-X] knowledge_vector_search_unavailable', { code: error.code })
     } else {
-      console.warn('[Codexa Assistant] knowledge_vector_search_failed', { code: error.code })
+      console.warn('[Code-X] knowledge_vector_search_failed', { code: error.code })
     }
     return lexicalEntries
   }

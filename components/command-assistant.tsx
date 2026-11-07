@@ -3,9 +3,9 @@
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
 import { MessageScroller } from '@shadcn/react/message-scroller'
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import useSWR from 'swr'
-import { Bot, ChevronDown, ChevronUp, Clock3, Copy, Loader2, Plus, Send, Settings2, Sparkles, Square, Trash2, User, X } from 'lucide-react'
+import { Bot, ChevronDown, ChevronUp, Clock3, Copy, GripVertical, Loader2, Plus, Send, Settings2, Sparkles, Square, Trash2, User, X } from 'lucide-react'
 import { AssistantMarkdown } from '@/components/assistant-markdown'
 import { Button } from '@/components/ui/button'
 import { Message, MessageAvatar, MessageContent, MessageFooter, MessageGroup, MessageHeader } from '@/components/ui/message'
@@ -90,6 +90,9 @@ export function CommandAssistant({ context, module, isOpen, onClose, onConversat
   const [showFallbackSettings, setShowFallbackSettings] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [minimized, setMinimized] = useState(false)
+  const [panelPosition, setPanelPosition] = useState<{ left: number; top: number } | null>(null)
+  const panelRef = useRef<HTMLElement>(null)
+  const panelDrag = useRef<{ pointerId: number; offsetX: number; offsetY: number } | null>(null)
   const [actionError, setActionError] = useState('')
   const { data: modelCatalog, error: modelError, isLoading: modelsLoading } = useSWR<ModelCatalog>(isOpen ? '/api/assistant/models' : null, fetchAssistantJson)
   const { data: historyData, error: historyError, mutate: mutateConversations } = useSWR<ConversationList>(isOpen ? '/api/assistant/conversations' : null, fetchAssistantJson)
@@ -143,6 +146,15 @@ export function CommandAssistant({ context, module, isOpen, onClose, onConversat
   const activeModelInfo = models.find((model) => model.id === activeModel)
   const activeConversation = historyData?.conversations.find((conversation) => conversation.id === conversationId)
   const storageReady = historyData?.storageReady
+  const clampPanelPosition = useCallback((left: number, top: number) => {
+    const panel = panelRef.current
+    if (!panel) return { left, top }
+    const bounds = panel.getBoundingClientRect()
+    return {
+      left: Math.min(Math.max(8, left), Math.max(8, window.innerWidth - bounds.width - 8)),
+      top: Math.min(Math.max(8, top), Math.max(8, window.innerHeight - bounds.height - 8)),
+    }
+  }, [])
 
   useEffect(() => {
     if (!selectedModel && defaultModel) setSelectedModel(defaultModel)
@@ -154,27 +166,45 @@ export function CommandAssistant({ context, module, isOpen, onClose, onConversat
   }, [isOpen])
 
   useEffect(() => {
+    const keepPanelVisible = () => {
+      setPanelPosition((current) => {
+        if (!current) return current
+        const next = clampPanelPosition(current.left, current.top)
+        return next.left === current.left && next.top === current.top ? current : next
+      })
+    }
+    keepPanelVisible()
+    window.addEventListener('resize', keepPanelVisible)
+    return () => window.removeEventListener('resize', keepPanelVisible)
+  }, [clampPanelPosition, expanded, minimized])
+
+  useEffect(() => {
     onConversationActiveChange(Boolean(conversationId || messages.length))
   }, [conversationId, messages.length, onConversationActiveChange])
 
   useEffect(() => {
-    if (!restoredData || restoredData.conversation.id !== restoreConversationId) return
+    if (!restoredData || restoredData.conversation.id !== restoreConversationId || modelsLoading) return
     const restoredMessages: AssistantUIMessage[] = restoredData.messages.map((message) => ({
       id: message.client_message_id,
       role: message.role,
       parts: message.content ? [{ type: 'text', text: message.content }] : [],
       metadata: message.metadata ?? (message.model_id ? { modelId: message.model_id } : undefined),
     }))
+    const restoredModelId = restoredData.conversation.selected_model
+    const nextModel = models.find((model) => model.id === restoredModelId)?.id ?? defaultModel
+    const availableFallbacks = (restoredData.conversation.fallback_models ?? [])
+      .filter((modelId) => modelId !== nextModel && models.some((model) => model.id === modelId))
+      .slice(0, 2)
     setConversationId(restoredData.conversation.id)
     requestState.current.conversationId = restoredData.conversation.id
-    setSelectedModel(restoredData.conversation.selected_model ?? defaultModel)
+    setSelectedModel(nextModel)
     setFallbackEnabled(restoredData.conversation.fallback_enabled)
-    setFallbackModels([restoredData.conversation.fallback_models?.[0] ?? '', restoredData.conversation.fallback_models?.[1] ?? ''])
+    setFallbackModels([availableFallbacks[0] ?? '', availableFallbacks[1] ?? ''])
     setMessages(restoredMessages)
     setRestoreConversationId(null)
     setShowHistory(false)
     setActionError('')
-  }, [defaultModel, restoreConversationId, restoredData, setMessages])
+  }, [defaultModel, models, modelsLoading, restoreConversationId, restoredData, setMessages])
 
   const savePreferences = useCallback(async (next: Partial<Pick<RequestState, 'modelId' | 'fallbackEnabled' | 'fallbackModels'>>) => {
     const activeId = requestState.current.conversationId
@@ -306,21 +336,66 @@ export function CommandAssistant({ context, module, isOpen, onClose, onConversat
     void savePreferences({ fallbackModels: next.filter(Boolean) })
   }
 
+  function startPanelDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0 || !panelRef.current) return
+    const bounds = panelRef.current.getBoundingClientRect()
+    panelDrag.current = { pointerId: event.pointerId, offsetX: event.clientX - bounds.left, offsetY: event.clientY - bounds.top }
+    setPanelPosition({ left: bounds.left, top: bounds.top })
+    event.currentTarget.setPointerCapture(event.pointerId)
+    event.preventDefault()
+  }
+
+  function movePanelDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    const drag = panelDrag.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    setPanelPosition(clampPanelPosition(event.clientX - drag.offsetX, event.clientY - drag.offsetY))
+  }
+
+  function stopPanelDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (panelDrag.current?.pointerId !== event.pointerId) return
+    panelDrag.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+
+  function movePanelWithKeyboard(event: KeyboardEvent<HTMLButtonElement>) {
+    if (event.key === 'Home') {
+      event.preventDefault()
+      setPanelPosition(null)
+      return
+    }
+    const movementByKey: Record<string, [number, number]> = {
+      ArrowLeft: [-1, 0],
+      ArrowRight: [1, 0],
+      ArrowUp: [0, -1],
+      ArrowDown: [0, 1],
+    }
+    const movement = movementByKey[event.key]
+    if (!movement || !panelRef.current) return
+    event.preventDefault()
+    const bounds = panelRef.current.getBoundingClientRect()
+    const current = panelPosition ?? { left: bounds.left, top: bounds.top }
+    const step = event.shiftKey ? 32 : 12
+    setPanelPosition(clampPanelPosition(current.left + movement[0] * step, current.top + movement[1] * step))
+  }
+
   const panelHeight = minimized ? 'h-[68px]' : expanded ? 'h-[min(780px,calc(100dvh-104px))]' : 'h-[min(660px,calc(100dvh-104px))]'
   const panelWidth = expanded ? 'w-[min(620px,calc(100vw-24px))]' : 'w-[min(440px,calc(100vw-24px))]'
 
   return (
     <section
+      ref={panelRef}
       role="dialog"
-      aria-label="Codexa Assistant"
+      aria-label="Code-X"
       aria-hidden={!isOpen}
-      className={`${isOpen ? 'flex' : 'hidden'} ${panelHeight} ${panelWidth} fixed right-3 top-[84px] z-[70] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#11161e] shadow-[0_24px_80px_-24px_rgba(0,0,0,.78)] ring-1 ring-black/20`}
+      style={panelPosition ? { left: panelPosition.left, top: panelPosition.top, right: 'auto' } : undefined}
+      className={`${isOpen ? 'flex' : 'hidden'} ${panelHeight} ${panelWidth} fixed ${panelPosition ? '' : 'right-3 top-[84px]'} z-[70] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#11161e] shadow-[0_24px_80px_-24px_rgba(0,0,0,.78)] ring-1 ring-black/20`}
     >
       <header className="flex min-h-[66px] items-center gap-2 border-b border-white/[0.08] px-3 py-2.5">
         <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-cyan-400/10 text-cyan-300"><Sparkles className="size-4" /></div>
+        <Button type="button" variant="ghost" size="icon-sm" className="touch-none cursor-grab select-none active:cursor-grabbing" aria-label="Mover janela do Code-X; use as setas para mover e Home para voltar à posição inicial" title="Arrastar janela" onPointerDown={startPanelDrag} onPointerMove={movePanelDrag} onPointerUp={stopPanelDrag} onPointerCancel={stopPanelDrag} onKeyDown={movePanelWithKeyboard}><GripVertical data-icon="inline-start" /></Button>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h2 className="truncate text-xs font-semibold text-slate-100">Codexa Assistant</h2>
+            <h2 className="truncate text-xs font-semibold text-slate-100">Code-X</h2>
             <span className="size-1.5 shrink-0 rounded-full bg-emerald-400" aria-hidden="true" />
           </div>
           <p className="mt-1 truncate text-[10px] text-slate-500">{activeConversation?.title ?? 'Contexto do workspace'}</p>
@@ -330,7 +405,7 @@ export function CommandAssistant({ context, module, isOpen, onClose, onConversat
           <Button type="button" variant="ghost" size="icon-sm" onClick={() => void startNewConversation()} aria-label="Nova conversa" title="Nova conversa"><Plus data-icon="inline-start" /></Button>
           <Button type="button" variant="ghost" size="icon-sm" onClick={() => setMinimized((current) => !current)} aria-label={minimized ? 'Expandir janela' : 'Minimizar janela'} title={minimized ? 'Expandir' : 'Minimizar'}>{minimized ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}</Button>
           <Button type="button" variant="ghost" size="icon-sm" onClick={() => setExpanded((current) => !current)} aria-label={expanded ? 'Reduzir janela' : 'Ampliar janela'} title={expanded ? 'Reduzir' : 'Ampliar'}>{expanded ? <ChevronDown data-icon="inline-start" /> : <ChevronUp data-icon="inline-start" />}</Button>
-          <Button type="button" variant="ghost" size="icon-sm" onClick={onClose} aria-label="Fechar Codexa Assistant" title="Fechar"><X data-icon="inline-start" /></Button>
+          <Button type="button" variant="ghost" size="icon-sm" onClick={onClose} aria-label="Fechar Code-X" title="Fechar"><X data-icon="inline-start" /></Button>
         </div>
       </header>
 
@@ -396,7 +471,7 @@ export function CommandAssistant({ context, module, isOpen, onClose, onConversat
                           {isUser ? <User className="size-3.5" aria-hidden="true" /> : <Bot className="size-3.5" aria-hidden="true" />}
                         </MessageAvatar>
                         <MessageContent className={`max-w-[calc(100%-2.5rem)] rounded-xl border px-3 py-2.5 ${isUser ? 'border-cyan-300/10 bg-cyan-300/[0.07]' : 'border-white/[0.06] bg-white/[0.025]'}`}>
-                          <MessageHeader className="px-0 text-[10px]">{isUser ? 'Você' : 'Codexa Assistant'}</MessageHeader>
+                          <MessageHeader className="px-0 text-[10px]">{isUser ? 'Você' : 'Code-X'}</MessageHeader>
                           {text ? isUser ? <p className="whitespace-pre-wrap break-words text-[12px] leading-5 text-cyan-50">{text}</p> : <AssistantMarkdown content={text} /> : null}
                           {message.parts.map((part, index) => {
                             const statusText = toolStatus(part)
@@ -423,7 +498,7 @@ export function CommandAssistant({ context, module, isOpen, onClose, onConversat
         {(error || actionError) && <div className="flex items-center justify-between gap-3 border-t border-rose-400/10 bg-rose-400/[0.04] px-3 py-2"><p role="alert" className="min-w-0 text-[10px] leading-4 text-rose-200">{actionError || error?.message || 'Não foi possível responder.'}</p>{error && <Button type="button" variant="ghost" size="xs" onClick={() => void regenerate()} className="shrink-0 text-rose-200">Tentar novamente</Button>}</div>}
 
         <form onSubmit={handleSubmit} className="border-t border-white/[0.08] bg-[#0d1118] p-3">
-          <label htmlFor="codexa-assistant-input" className="sr-only">Mensagem para o Codexa Assistant</label>
+          <label htmlFor="codexa-assistant-input" className="sr-only">Mensagem para o Code-X</label>
           <div className="flex items-end gap-2 rounded-xl border border-white/[0.1] bg-white/[0.025] p-2 focus-within:border-cyan-300/30">
             <textarea id="codexa-assistant-input" value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={handleInputKeyDown} rows={2} maxLength={8000} placeholder="Pergunte sobre a Codexa, tecnologia ou código…" className="max-h-28 min-h-10 flex-1 resize-none bg-transparent px-1 py-1.5 text-xs leading-5 text-slate-100 outline-none placeholder:text-slate-600" />
             {loading ? <Button type="button" variant="secondary" size="icon" onClick={() => stop()} aria-label="Interromper geração" title="Interromper"><Square data-icon="inline-start" /></Button> : <Button type="submit" size="icon" disabled={!input.trim()} aria-label="Enviar mensagem" title="Enviar"><Send data-icon="inline-start" /></Button>}

@@ -59,7 +59,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     )
   } catch (error) {
     if (error instanceof AdminApiError) return NextResponse.json({ error: error.message }, { status: error.status })
-    console.error('[Codexa Assistant] conversation_load_failed', { errorName: error instanceof Error ? error.name : 'UnknownError' })
+    console.error('[Code-X] conversation_load_failed', { errorName: error instanceof Error ? error.name : 'UnknownError' })
     return NextResponse.json({ error: 'Não foi possível carregar esta conversa.' }, { status: 500 })
   }
 }
@@ -93,7 +93,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ conversation: data }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     if (error instanceof AdminApiError) return NextResponse.json({ error: error.message }, { status: error.status })
-    console.error('[Codexa Assistant] conversation_update_failed', { errorName: error instanceof Error ? error.name : 'UnknownError' })
+    console.error('[Code-X] conversation_update_failed', { errorName: error instanceof Error ? error.name : 'UnknownError' })
     return NextResponse.json({ error: 'Não foi possível atualizar a conversa.' }, { status: 500 })
   }
 }
@@ -119,7 +119,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     return new Response(null, { status: 204 })
   } catch (error) {
     if (error instanceof AdminApiError) return NextResponse.json({ error: error.message }, { status: error.status })
-    console.error('[Codexa Assistant] conversation_delete_failed', { errorName: error instanceof Error ? error.name : 'UnknownError' })
+    console.error('[Code-X] conversation_delete_failed', { errorName: error instanceof Error ? error.name : 'UnknownError' })
     return NextResponse.json({ error: 'Não foi possível excluir a conversa.' }, { status: 500 })
   }
 }

@@ -11,7 +11,7 @@ export async function GET() {
     await getWorkspaceActor()
     const models = await getOpenRouterChatModels()
     return NextResponse.json(
-      { models, defaultModel: getDefaultOpenRouterModel() },
+      { models, defaultModel: getDefaultOpenRouterModel(models.map((model) => model.id)) },
       { headers: { 'Cache-Control': 'private, no-store' } },
     )
   } catch (error) {
@@ -22,7 +22,7 @@ export async function GET() {
       const status = error.category === 'authentication' ? 503 : error.category === 'configuration' ? 503 : 502
       return NextResponse.json({ error: error.message }, { status })
     }
-    console.error('[Codexa Assistant] model_catalog_failed', {
+    console.error('[Code-X] model_catalog_failed', {
       errorName: error instanceof Error ? error.name : 'UnknownError',
     })
     return NextResponse.json({ error: 'Não foi possível carregar o catálogo de modelos agora.' }, { status: 502 })

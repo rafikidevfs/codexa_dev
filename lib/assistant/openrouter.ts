@@ -2,9 +2,18 @@ import 'server-only'
 
 import { createOpenAI } from '@ai-sdk/openai'
 
-export const DEFAULT_OPENROUTER_MODEL = 'dots-studio/dots-3-note-preview:free'
+export const DEFAULT_OPENROUTER_MODEL = 'google/gemma-4-31b-it:free'
 export const DEFAULT_EMBEDDING_MODEL = 'openai/text-embedding-3-small'
 export const EMBEDDING_DIMENSIONS = 1536
+
+const FEATURED_FREE_MODEL_IDS = [
+  'google/gemma-4-31b-it:free',
+  'google/gemma-4-26b-a4b-it:free',
+  'nvidia/nemotron-3.5-super-vl:free',
+  'cohere/north-mini-code:free',
+  'dots-studio/dots-3-note-preview:free',
+] as const
+const featuredModelPriority = new Map<string, number>(FEATURED_FREE_MODEL_IDS.map((id, index) => [id, index]))
 
 type RawModel = {
   id?: unknown
@@ -49,8 +58,15 @@ export function getOpenRouterApiKey(): string {
   return key
 }
 
-export function getDefaultOpenRouterModel(): string {
-  return process.env.OPENROUTER_MODEL?.trim() || DEFAULT_OPENROUTER_MODEL
+export function getDefaultOpenRouterModel(availableModelIds?: string[]): string {
+  const configuredModel = process.env.OPENROUTER_MODEL?.trim()
+  const preferredModel = configuredModel && featuredModelPriority.has(configuredModel)
+    ? configuredModel
+    : DEFAULT_OPENROUTER_MODEL
+
+  if (!availableModelIds) return preferredModel
+  if (availableModelIds.includes(preferredModel)) return preferredModel
+  return availableModelIds.find((modelId) => featuredModelPriority.has(modelId)) ?? DEFAULT_OPENROUTER_MODEL
 }
 
 function asString(value: unknown): string | undefined {
@@ -116,13 +132,10 @@ export async function getOpenRouterChatModels(): Promise<OpenRouterChatModel[]> 
     const models = (Array.isArray(payload.data) ? payload.data : [])
       .map(mapModel)
       .filter((model): model is OpenRouterChatModel => Boolean(model))
-      .sort((left, right) => {
-        const leftFree = left.pricing === 'free' ? 0 : 1
-        const rightFree = right.pricing === 'free' ? 0 : 1
-        return leftFree - rightFree || left.name.localeCompare(right.name)
-      })
+      .filter((model) => model.pricing === 'free' && featuredModelPriority.has(model.id))
+      .sort((left, right) => (featuredModelPriority.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (featuredModelPriority.get(right.id) ?? Number.MAX_SAFE_INTEGER))
 
-    if (!models.length) throw new OpenRouterError('O catálogo não retornou modelos de texto disponíveis.', 'catalog')
+    if (!models.length) throw new OpenRouterError('O catálogo não retornou os modelos gratuitos selecionados.', 'catalog')
     catalogCache = { models, expiresAt: Date.now() + 5 * 60 * 1000 }
     return models
   })()
@@ -195,7 +208,7 @@ export function createOpenRouterFallbackFetch({
           }
 
           lastResponse = response
-          console.warn('[Codexa Assistant] model_attempt_failed', {
+          console.warn('[Code-X] model_attempt_failed', {
             requestId,
             modelId,
             statusCode: response.status,
@@ -210,7 +223,7 @@ export function createOpenRouterFallbackFetch({
         } catch (error) {
           if (init?.signal?.aborted) throw error
           lastError = error
-          console.warn('[Codexa Assistant] model_connection_failed', {
+          console.warn('[Code-X] model_connection_failed', {
             requestId,
             modelId,
             errorName: error instanceof Error ? error.name : 'UnknownError',
@@ -235,7 +248,7 @@ export function createOpenRouterProvider(fetch: typeof globalThis.fetch) {
     baseURL: 'https://openrouter.ai/api/v1',
     headers: {
       'HTTP-Referer': process.env.SITE_URL ?? 'https://codexa.dev',
-      'X-Title': 'Codexa Assistant',
+      'X-Title': 'Code-X',
     },
     fetch,
   })

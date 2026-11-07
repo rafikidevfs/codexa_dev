@@ -34,14 +34,14 @@ export async function GET() {
       return NextResponse.json({ conversations: [], storageReady: false }, { headers: { 'Cache-Control': 'private, no-store' } })
     }
     if (error) {
-      console.warn('[Codexa Assistant] conversation_list_failed', { code: error.code })
+      console.warn('[Code-X] conversation_list_failed', { code: error.code })
       return NextResponse.json({ error: 'Não foi possível carregar o histórico.' }, { status: 503 })
     }
 
     return NextResponse.json({ conversations: data ?? [], storageReady: true }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     if (error instanceof AdminApiError) return NextResponse.json({ error: error.message }, { status: error.status })
-    console.error('[Codexa Assistant] conversation_list_failed', { errorName: error instanceof Error ? error.name : 'UnknownError' })
+    console.error('[Code-X] conversation_list_failed', { errorName: error instanceof Error ? error.name : 'UnknownError' })
     return NextResponse.json({ error: 'Não foi possível carregar o histórico.' }, { status: 500 })
   }
 }
@@ -71,14 +71,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ conversation: null, storageReady: false }, { headers: { 'Cache-Control': 'private, no-store' } })
     }
     if (error) {
-      console.warn('[Codexa Assistant] conversation_create_failed', { code: error.code })
+      console.warn('[Code-X] conversation_create_failed', { code: error.code })
       return NextResponse.json({ error: 'Não foi possível iniciar uma conversa persistente.' }, { status: 503 })
     }
 
     return NextResponse.json({ conversation: data, storageReady: true }, { status: 201, headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
     if (error instanceof AdminApiError) return NextResponse.json({ error: error.message }, { status: error.status })
-    console.error('[Codexa Assistant] conversation_create_failed', { errorName: error instanceof Error ? error.name : 'UnknownError' })
+    console.error('[Code-X] conversation_create_failed', { errorName: error instanceof Error ? error.name : 'UnknownError' })
     return NextResponse.json({ error: 'Não foi possível iniciar uma conversa.' }, { status: 500 })
   }
 }

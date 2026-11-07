@@ -67,7 +67,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Aplique o SQL manual do assistente antes de indexar documentos.', sqlRequired: true }, { status: 503 })
     }
     if (existingError) {
-      console.warn('[Codexa Assistant] knowledge_document_lookup_failed', { code: existingError.code })
+      console.warn('[Code-X] knowledge_document_lookup_failed', { code: existingError.code })
       return NextResponse.json({ error: 'Não foi possível verificar o índice do documento.' }, { status: 503 })
     }
 
@@ -80,7 +80,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Aplique o SQL manual do assistente antes de indexar documentos.', sqlRequired: true }, { status: 503 })
       }
       if (countError) {
-        console.warn('[Codexa Assistant] knowledge_chunks_count_failed', { code: countError.code })
+        console.warn('[Code-X] knowledge_chunks_count_failed', { code: countError.code })
         return NextResponse.json({ error: 'Não foi possível verificar os fragmentos do documento.' }, { status: 503 })
       }
       if (count === chunks.length) {
@@ -90,7 +90,7 @@ export async function POST(request: Request) {
           .eq('id', existing.id)
           .eq('created_by', actor.actorId)
         if (metadataError) {
-          console.warn('[Codexa Assistant] knowledge_metadata_update_failed', { code: metadataError.code })
+          console.warn('[Code-X] knowledge_metadata_update_failed', { code: metadataError.code })
           return NextResponse.json({ error: 'Não foi possível atualizar os metadados do documento.' }, { status: 503 })
         }
         return NextResponse.json({ id: existing.id, chunkCount: chunks.length, reusedEmbeddings: true }, { status: 200 })
@@ -123,7 +123,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Aplique o SQL manual do assistente antes de indexar documentos.', sqlRequired: true }, { status: 503 })
     }
     if (documentError || !document) {
-      console.warn('[Codexa Assistant] knowledge_document_upsert_failed', { code: documentError?.code })
+      console.warn('[Code-X] knowledge_document_upsert_failed', { code: documentError?.code })
       return NextResponse.json({ error: 'Não foi possível armazenar o documento.' }, { status: 503 })
     }
 
@@ -137,7 +137,7 @@ export async function POST(request: Request) {
       .from('assistant_knowledge_chunks')
       .upsert(chunkRows, { onConflict: 'knowledge_id,chunk_index' })
     if (chunksError) {
-      console.warn('[Codexa Assistant] knowledge_chunks_upsert_failed', { code: chunksError.code })
+      console.warn('[Code-X] knowledge_chunks_upsert_failed', { code: chunksError.code })
       return NextResponse.json({ error: isAssistantSchemaMissing(chunksError) ? 'Aplique o SQL manual do assistente antes de indexar documentos.' : 'Não foi possível indexar o documento.', sqlRequired: isAssistantSchemaMissing(chunksError) }, { status: 503 })
     }
 
@@ -147,14 +147,14 @@ export async function POST(request: Request) {
       .eq('knowledge_id', document.id)
       .gte('chunk_index', chunks.length)
     if (staleChunksError) {
-      console.warn('[Codexa Assistant] knowledge_stale_chunks_cleanup_failed', { code: staleChunksError.code })
+      console.warn('[Code-X] knowledge_stale_chunks_cleanup_failed', { code: staleChunksError.code })
       return NextResponse.json({ error: 'O documento foi indexado, mas não foi possível remover fragmentos antigos.' }, { status: 503 })
     }
 
     return NextResponse.json({ id: document.id, chunkCount: chunks.length, reusedEmbeddings: false }, { status: existing ? 200 : 201 })
   } catch (error) {
     if (error instanceof AdminApiError) return NextResponse.json({ error: error.message }, { status: error.status })
-    console.error('[Codexa Assistant] knowledge_ingest_failed', { errorName: error instanceof Error ? error.name : 'UnknownError' })
+    console.error('[Code-X] knowledge_ingest_failed', { errorName: error instanceof Error ? error.name : 'UnknownError' })
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Não foi possível indexar o documento.' }, { status: 502 })
   }
 }
@@ -177,14 +177,14 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Aplique o SQL manual do assistente antes de remover documentos.', sqlRequired: true }, { status: 503 })
     }
     if (error) {
-      console.warn('[Codexa Assistant] knowledge_document_delete_failed', { code: error.code })
+      console.warn('[Code-X] knowledge_document_delete_failed', { code: error.code })
       return NextResponse.json({ error: 'Não foi possível remover o documento.' }, { status: 503 })
     }
     if (!data) return NextResponse.json({ error: 'Documento não encontrado ou sem permissão.' }, { status: 404 })
     return new Response(null, { status: 204 })
   } catch (error) {
     if (error instanceof AdminApiError) return NextResponse.json({ error: error.message }, { status: error.status })
-    console.error('[Codexa Assistant] knowledge_document_delete_failed', { errorName: error instanceof Error ? error.name : 'UnknownError' })
+    console.error('[Code-X] knowledge_document_delete_failed', { errorName: error instanceof Error ? error.name : 'UnknownError' })
     return NextResponse.json({ error: 'Não foi possível remover o documento.' }, { status: 500 })
   }
 }
