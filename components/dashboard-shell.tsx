@@ -20,6 +20,7 @@ import { CommandAssistant } from '@/components/command-assistant'
 import { UserAvatar } from '@/components/user-avatar'
 import { createClient } from '@/lib/supabase/client'
 import { hasWorkspaceAccess } from '@/lib/workspace-access'
+import { workspaceLabel } from '@/lib/workspace-modules'
 import { applyWorkspaceAppearance, applyWorkspaceTheme, defaultAppearance, getWorkspaceThemePreference, type WorkspaceAppearance } from '@/lib/workspace-theme'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faChartLine, faUserPlus, faUsers, faAddressBook, faFileSignature, faFileContract, faDiagramProject, faListCheck, faCodePullRequest, faHeadset, faServer, faPuzzlePiece, faLayerGroup, faKey, faArrowTrendUp, faArrowTrendDown, faChartPie, faUserShield, faUserGear, faShieldHalved, faClockRotateLeft, faUserCircle, faPalette, faGear, faMedal, faTrophy, faFolderOpen, faSliders } from '@fortawesome/free-solid-svg-icons'
@@ -147,6 +148,7 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [assistantOpen, setAssistantOpen] = useState(false)
+  const [assistantHasConversation, setAssistantHasConversation] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [notifications, setNotifications] = useState<WorkspaceNotification[]>([])
   const [notificationsLoading, setNotificationsLoading] = useState(false)
@@ -160,7 +162,8 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
   const avatarUser = { fullName: displayName, nickname: profileNickname, avatarUrl: profileAvatarUrl }
 
   useEffect(() => {
-    setActiveSection(initialSection)
+    const routeModule = pathname.split('/').filter(Boolean)[1]
+    setActiveSection(routeModule ? workspaceLabel(routeModule) ?? initialSection : 'Dashboard')
   }, [initialSection, pathname])
 
   useEffect(() => {
@@ -207,6 +210,10 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
         setSearchOpen(true)
+      } else if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'a') {
+        event.preventDefault()
+        setAssistantOpen((current) => !current)
+        setSearchOpen(false)
       } else if (event.key === 'Escape') {
         setAssistantOpen(false)
         setSearchOpen(false)
@@ -302,6 +309,7 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
   const matchingSearchItems = searchItems.filter((item) =>
     `${item.label} ${item.group}`.toLocaleLowerCase('pt-BR').includes(searchQuery.trim().toLocaleLowerCase('pt-BR')),
   )
+  const canUseAssistant = permissions.includes('*') || permissions.length > 0
 
   async function signOut() {
     await createClient().auth.signOut()
@@ -361,6 +369,7 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
           <div className="hidden items-center gap-2 text-xs text-slate-500 sm:flex"><span>Workspace</span><ChevronRight className="size-3" /><span className="text-slate-300">{activeSection}</span></div>
           <div className="ml-auto flex items-center gap-2">
             <button onClick={() => setSearchOpen(true)} aria-label="Buscar (Ctrl+K)" className="hidden items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2 text-xs text-slate-500 transition-colors hover:border-white/15 hover:text-slate-300 md:flex"><Search className="size-3.5" />Buscar<span className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-slate-600">Ctrl K</span></button>
+            {canUseAssistant && <button type="button" onClick={() => setAssistantOpen((current) => !current)} aria-label={assistantHasConversation ? 'Codexa Assistant, conversa ativa' : 'Codexa Assistant'} aria-expanded={assistantOpen} title="Codexa Assistant · Ctrl+Shift+A" className={`relative grid size-9 place-items-center rounded-lg border transition-colors ${assistantOpen ? 'border-blue-400/40 bg-blue-400/10 text-blue-200' : 'border-white/[0.08] bg-white/[0.025] text-slate-400 hover:border-white/15 hover:text-slate-100'}`}><Sparkles className="size-4" />{assistantHasConversation && <span aria-hidden="true" className="absolute right-1 top-1 size-1.5 rounded-full bg-emerald-400" />}</button>}
             <div className="relative">
               <button onClick={() => void toggleNotifications()} className="relative rounded-lg p-2 text-slate-400 hover:bg-white/5 hover:text-white" aria-label="Notificações" aria-expanded={notificationsOpen}>
                 <Bell className="size-[18px]" />
@@ -422,8 +431,7 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
       {searchOpen && <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/65 px-4 pt-[12vh]" onMouseDown={(event) => { if (event.target === event.currentTarget) setSearchOpen(false) }}>
         <section role="dialog" aria-modal="true" aria-label="Buscar módulos" className="w-full max-w-xl overflow-hidden rounded-xl border border-white/[0.1] bg-[#11161e] shadow-2xl">
           <div className="flex items-center gap-3 border-b border-white/[0.08] px-4"><Search className="size-4 text-slate-500" /><input ref={searchInput} value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Buscar módulo..." className="h-14 flex-1 bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-500" /><kbd className="rounded border border-white/10 px-2 py-1 text-[10px] text-slate-500">ESC</kbd></div>
-          <button type="button" onClick={() => setAssistantOpen((current) => !current)} className="flex w-full items-center gap-3 border-b border-white/[0.07] px-4 py-3 text-left hover:bg-blue-500/10"><span className="grid size-7 place-items-center rounded-lg bg-blue-500/15 text-blue-300"><Sparkles className="size-3.5" /></span><span className="flex-1"><span className="block text-xs font-semibold text-slate-200">Perguntar ao assistente</span><span className="block text-[10px] text-slate-500">Use IA para navegar e entender o workspace</span></span><kbd className="rounded border border-white/10 px-2 py-1 text-[10px] text-slate-500">IA</kbd></button>
-          {assistantOpen && <CommandAssistant context={`Módulo atual: ${activeSection}.`} onClose={() => setAssistantOpen(false)} />}
+          {canUseAssistant && <button type="button" onClick={() => { setSearchOpen(false); setAssistantOpen(true) }} className="flex w-full items-center gap-3 border-b border-white/[0.07] px-4 py-3 text-left hover:bg-blue-500/10"><span className="grid size-7 place-items-center rounded-lg bg-blue-500/15 text-blue-300"><Sparkles className="size-3.5" /></span><span className="flex-1"><span className="block text-xs font-semibold text-slate-200">Perguntar ao Codexa Assistant</span><span className="block text-[10px] text-slate-500">Converse enquanto navega pelo workspace</span></span><kbd className="rounded border border-white/10 px-2 py-1 text-[10px] text-slate-500">Ctrl ⇧ A</kbd></button>}
           <div className="max-h-[55vh] overflow-y-auto p-2">
             {matchingSearchItems.length ? matchingSearchItems.map((item) => <button key={item.slug} onClick={() => openSearchItem(item)} className="flex w-full items-center justify-between rounded-lg px-3 py-3 text-left text-sm text-slate-200 hover:bg-blue-500/10 hover:text-blue-200"><span>{item.label}</span><span className="text-[11px] text-slate-500">{item.group}</span></button>)
               : <p className="px-3 py-8 text-center text-sm text-slate-500">Nenhum módulo encontrado.</p>}
@@ -431,11 +439,18 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
           <div className="border-t border-white/[0.07] px-4 py-2 text-[10px] text-slate-600">Navegue somente pelos módulos que seu cargo pode acessar.</div>
         </section>
       </div>}
+      {canUseAssistant && <CommandAssistant
+        context={`Módulo atual: ${activeSection}. Rota atual: ${pathname.replace(/\/[0-9a-f-]{20,}/gi, '/:id')}`}
+        module={pathname.split('/').filter(Boolean)[1] ?? 'dashboard'}
+        isOpen={assistantOpen}
+        onClose={() => setAssistantOpen(false)}
+        onConversationActiveChange={setAssistantHasConversation}
+      />}
     </div>
   )
 }
 
-export function DashboardShell({ initialSection = 'Dashboard', page, permissions = [], profileName = '' }: { initialSection?: string; page?: ReactNode; permissions?: string[]; profileName?: string }) {
+export function DashboardShell({ initialSection = 'Dashboard', page, children, permissions = [], profileName = '' }: { initialSection?: string; page?: ReactNode; children?: ReactNode; permissions?: string[]; profileName?: string }) {
   const [authenticated, setAuthenticated] = useState(false)
   const [checking, setChecking] = useState(true)
 
@@ -451,5 +466,5 @@ export function DashboardShell({ initialSection = 'Dashboard', page, permissions
 
   if (checking) return <main className="grid min-h-screen place-items-center bg-[#080b10] text-sm text-slate-500">Carregando sessão...</main>
   if (!authenticated) return <AuthScreen onAuthenticated={() => setAuthenticated(true)} />
-  return <DashboardContent initialSection={initialSection} page={page} permissions={permissions} profileName={profileName} />
+  return <DashboardContent initialSection={initialSection} page={children ?? page} permissions={permissions} profileName={profileName} />
 }

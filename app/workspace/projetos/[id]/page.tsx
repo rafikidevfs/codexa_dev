@@ -1,5 +1,4 @@
 import { AccessDenied } from '@/components/access-denied'
-import { DashboardShell } from '@/components/dashboard-shell'
 import { ProjectWorkspace } from '@/components/project-workspace'
 import { hasWorkspaceAccess } from '@/lib/workspace-access'
 import { AdminApiError } from '@/lib/supabase/server-client'
@@ -9,20 +8,11 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const { id } = await params
   try {
     const access = await getWorkspaceAccessSnapshot()
-    if (!hasWorkspaceAccess(access.permissions, 'projetos')) {
-      return <DashboardShell initialSection="Projetos" permissions={access.permissions} profileName={access.fullName} page={<AccessDenied />} />
-    }
-    return <DashboardShell
-      initialSection="Projetos"
-      permissions={access.permissions}
-      profileName={access.fullName}
-      page={<ProjectWorkspace projectId={id} permissions={access.permissions} />}
-    />
+    if (!hasWorkspaceAccess(access.permissions, 'projetos')) return <AccessDenied />
+    return <ProjectWorkspace projectId={id} permissions={access.permissions} />
   } catch (error) {
-    if (error instanceof AdminApiError && error.status === 403) {
-      return <DashboardShell initialSection="Projetos" page={<AccessDenied />} />
-    }
-    if (error instanceof AdminApiError && error.status === 401) return <DashboardShell initialSection="Projetos" />
+    if (error instanceof AdminApiError && error.status === 401) return null
+    if (error instanceof AdminApiError && error.status === 403) return <AccessDenied />
     throw error
   }
 }

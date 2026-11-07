@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { createServerClient } from '@supabase/ssr'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { applyWorkspacePermissionOverrides, normalizeWorkspaceRoleName } from '@/lib/workspace-access'
 import { AdminApiError, createServiceClient } from './server-client'
@@ -12,6 +13,7 @@ export type WorkspaceActor = {
   roleName: string
   fullName: string
   supabase: ReturnType<typeof createServiceClient>
+  sessionSupabase: SupabaseClient
 }
 
 function isActive(status: string | null): boolean {
@@ -68,6 +70,7 @@ export async function getWorkspaceActor(): Promise<WorkspaceActor> {
     roleName: role.name,
     fullName: member.full_name,
     supabase,
+    sessionSupabase: authClient as unknown as SupabaseClient,
   }
 }
 
