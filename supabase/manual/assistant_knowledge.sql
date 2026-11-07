@@ -43,7 +43,7 @@ as $function$
       on pg_catalog.lower(pg_catalog.btrim(role.name)) = pg_catalog.lower(pg_catalog.btrim(member.role_name))
      and role.is_active
     where member.user_id = auth.uid()
-      and pg_catalog.lower(pg_catalog.btrim(pg_catalog.coalesce(member.status, ''))) in ('active', 'ativo', 'enabled', 'habilitado')
+      and pg_catalog.lower(pg_catalog.btrim(coalesce(member.status, ''))) in ('active', 'ativo', 'enabled', 'habilitado')
   ), required_permissions as (
     select pg_catalog.unnest(
       case pg_catalog.lower(coalesce(p_module_slug, ''))
@@ -393,6 +393,66 @@ create policy assistant_knowledge_chunks_delete_own
         and document.created_by = auth.uid()
     )
   );
+
+create or replace function public.search_assistant_knowledge_text(
+  p_query text,
+  p_module text default null,
+  p_limit integer default 5
+)
+returns table (
+  id uuid,
+  slug text,
+  title text,
+  category text,
+  module_slug text,
+  content text,
+  source_url text,
+  relevance real
+)
+language sql
+stable
+security invoker
+set search_path = ''
+as $function$
+  with query_terms as (
+    select pg_catalog.websearch_to_tsquery(
+      'portuguese'::pg_catalog.regconfig,
+      coalesce(p_query, '')
+    ) as query
+  ), ranked_documents as (
+    select
+      document.id,
+      document.slug,
+      document.title,
+      document.category,
+      document.module_slug,
+      document.content,
+      document.source_url,
+      pg_catalog.ts_rank_cd(document.search_vector, query_terms.query)::real as relevance
+    from public.assistant_knowledge as document
+    cross join query_terms
+    where document.is_active
+      and document.search_vector @@ query_terms.query
+      and (p_module is null or document.module_slug in ('global', p_module))
+    order by pg_catalog.ts_rank_cd(document.search_vector, query_terms.query) desc
+    limit 40
+  )
+  select
+    ranked_documents.id,
+    ranked_documents.slug,
+    ranked_documents.title,
+    ranked_documents.category,
+    ranked_documents.module_slug,
+    pg_catalog.left(ranked_documents.content, 2400),
+    ranked_documents.source_url,
+    ranked_documents.relevance
+  from ranked_documents
+  order by relevance desc
+  limit least(greatest(coalesce(p_limit, 5), 1), 8);
+$function$;
+
+revoke all on function public.search_assistant_knowledge_text(text, text, integer) from public, anon;
+grant execute on function public.search_assistant_knowledge_text(text, text, integer) to authenticated;
 
 drop function if exists public.search_assistant_knowledge(text, integer);
 drop function if exists public.search_assistant_knowledge(text, extensions.vector, text, integer);

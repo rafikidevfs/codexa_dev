@@ -14,6 +14,8 @@ type AssistantMetadata = {
   modelId?: string
   requestedModel?: string
   fallbackUsed?: boolean
+  inputTokens?: number
+  outputTokens?: number
   totalTokens?: number
   conversationId?: string
   sources?: Array<{ title: string; sourceUrl: string | null; module: string }>
@@ -91,7 +93,7 @@ export function CommandAssistant({ context, module, isOpen, onClose, onConversat
   const [actionError, setActionError] = useState('')
   const { data: modelCatalog, error: modelError, isLoading: modelsLoading } = useSWR<ModelCatalog>(isOpen ? '/api/assistant/models' : null, fetchAssistantJson)
   const { data: historyData, error: historyError, mutate: mutateConversations } = useSWR<ConversationList>(isOpen ? '/api/assistant/conversations' : null, fetchAssistantJson)
-  const { data: restoredData } = useSWR<ConversationDetail>(
+  const { data: restoredData, error: restoreError } = useSWR<ConversationDetail>(
     isOpen && restoreConversationId ? `/api/assistant/conversations/${restoreConversationId}` : null,
     fetchAssistantJson,
   )
@@ -319,7 +321,7 @@ export function CommandAssistant({ context, module, isOpen, onClose, onConversat
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-xs font-semibold text-slate-100">Codexa Assistant</h2>
-            <span className="size-1.5 shrink-0 rounded-full bg-emerald-400" aria-label="Assistente disponível" />
+            <span className="size-1.5 shrink-0 rounded-full bg-emerald-400" aria-hidden="true" />
           </div>
           <p className="mt-1 truncate text-[10px] text-slate-500">{activeConversation?.title ?? 'Contexto do workspace'}</p>
         </div>
@@ -344,9 +346,9 @@ export function CommandAssistant({ context, module, isOpen, onClose, onConversat
           >
             {models.length ? models.map((model) => <option key={model.id} value={model.id}>{model.name} · {model.provider} · {model.pricing === 'free' ? 'Gratuito' : model.pricing === 'paid' ? 'Pago' : 'Preço desconhecido'}</option>) : <option value={activeModel}>{modelsLoading ? 'Carregando catálogo…' : activeModel || 'Modelo padrão'}</option>}
           </select>
-          <span className={`rounded-full px-2 py-1 text-[9px] font-medium ${activeModelInfo?.pricing === 'free' ? 'bg-emerald-400/10 text-emerald-300' : activeModelInfo?.pricing === 'paid' ? 'bg-amber-400/10 text-amber-200' : 'bg-white/[0.06] text-slate-400'}`} title={activeModelInfo ? modelPriceLabel(activeModelInfo) : 'Preço não informado'}>{activeModelInfo?.pricing === 'free' ? 'Gratuito' : activeModelInfo?.pricing === 'paid' ? 'Pago' : 'Preço n/d'}</span>
+          <span className={`rounded-full px-2 py-1 text-[9px] font-medium ${activeModelInfo?.pricing === 'free' ? 'bg-emerald-400/10 text-emerald-300' : activeModelInfo?.pricing === 'paid' ? 'bg-amber-400/10 text-amber-200' : 'bg-white/[0.06] text-slate-400'}`} aria-label={activeModelInfo ? modelPriceLabel(activeModelInfo) : 'Preço não informado'} title={activeModelInfo ? modelPriceLabel(activeModelInfo) : 'Preço não informado'}>{activeModelInfo?.pricing === 'free' ? 'Gratuito' : activeModelInfo?.pricing === 'paid' ? 'Pago' : 'Preço n/d'}</span>
           <Button type="button" variant="ghost" size="icon-sm" onClick={() => setShowFallbackSettings((current) => !current)} aria-label="Configurar modelos de contingência" aria-expanded={showFallbackSettings} title="Contingência"><Settings2 data-icon="inline-start" /></Button>
-          <div className="flex basis-full flex-wrap gap-x-3 text-[9px] text-slate-600" aria-label="Capacidades e disponibilidade do modelo"><span>{activeModelInfo?.provider ?? 'OpenRouter'}</span><span>Ferramentas: {activeModelInfo ? activeModelInfo.supportsTools ? 'sim' : 'não' : 'n/d'}</span><span>JSON: {activeModelInfo ? activeModelInfo.supportsStructuredOutput ? 'sim' : 'não' : 'n/d'}</span><span>Streaming: {activeModelInfo?.supportsStreaming === null || !activeModelInfo ? 'não informado' : activeModelInfo.supportsStreaming ? 'sim' : 'não'}</span><span>{activeModelInfo?.contextLength ? `${Math.round(activeModelInfo.contextLength / 1000)}k tokens` : 'Contexto n/d'}</span><span title="A presença no catálogo não garante disponibilidade em tempo real">Listada no catálogo OpenRouter</span></div>
+          <div className="flex basis-full flex-wrap gap-x-3 text-[9px] text-slate-600" aria-label="Capacidades e disponibilidade do modelo"><span>{activeModelInfo?.provider ?? 'OpenRouter'}</span><span>Ferramentas: {activeModelInfo ? activeModelInfo.supportsTools ? 'sim' : 'não' : 'n/d'}</span><span>JSON: {activeModelInfo ? activeModelInfo.supportsStructuredOutput ? 'sim' : 'não' : 'n/d'}</span><span>Streaming: {activeModelInfo?.supportsStreaming === null || !activeModelInfo ? 'não informado' : activeModelInfo.supportsStreaming ? 'sim' : 'não'}</span><span>{activeModelInfo?.contextLength ? `${Math.round(activeModelInfo.contextLength / 1000)}k tokens` : 'Contexto n/d'}</span><span>{activeModelInfo ? modelPriceLabel(activeModelInfo) : 'Preço n/d'}</span><span title="A presença no catálogo não garante disponibilidade em tempo real">Listada no catálogo OpenRouter</span></div>
         </div>
 
         {showFallbackSettings && <div className="grid gap-2 border-b border-white/[0.07] bg-white/[0.02] px-3 py-3">
@@ -362,6 +364,7 @@ export function CommandAssistant({ context, module, isOpen, onClose, onConversat
         {modelError && <p role="alert" className="border-b border-rose-400/10 px-3 py-2 text-[10px] text-rose-300">{modelError.message}</p>}
         {historyData?.storageReady === false && <p role="status" className="border-b border-amber-400/10 bg-amber-400/[0.04] px-3 py-2 text-[10px] leading-4 text-amber-200">Histórico e RAG aguardam a aplicação manual de <code>supabase/manual/assistant_knowledge.sql</code>. A conversa atual continua apenas nesta sessão.</p>}
         {historyError && <p role="alert" className="border-b border-rose-400/10 px-3 py-2 text-[10px] text-rose-300">{historyError.message}</p>}
+        {restoreError && <p role="alert" className="border-b border-rose-400/10 px-3 py-2 text-[10px] text-rose-300">{restoreError.message}</p>}
 
         {showHistory && <div className="max-h-36 overflow-y-auto border-b border-white/[0.07] bg-[#0c1117] p-2" aria-label="Histórico de conversas">
           {historyData?.conversations.length ? historyData.conversations.map((conversation) => <div key={conversation.id} className="flex items-center gap-1">
@@ -404,7 +407,7 @@ export function CommandAssistant({ context, module, isOpen, onClose, onConversat
                               {sources.map((source, index) => <span key={`${source.title}-${index}`} className="max-w-full truncate rounded-md bg-white/[0.05] px-2 py-1 text-[9px] text-slate-400">{source.sourceUrl && /^https?:\/\//i.test(source.sourceUrl) ? <a href={source.sourceUrl} target="_blank" rel="noopener noreferrer" className="hover:text-cyan-200">Fonte: {source.title}</a> : `Fonte: ${source.title}`}</span>)}
                             </div>}
                             {message.metadata?.fallbackUsed && <p className="text-[9px] text-amber-200">Resposta enviada por modelo alternativo: {message.metadata.modelId}</p>}
-                            {text && <MessageFooter className="justify-end px-0 pt-1"><Button type="button" variant="ghost" size="xs" onClick={() => void copyAnswer(message)} aria-label="Copiar resposta"><Copy data-icon="inline-start" />Copiar</Button></MessageFooter>}
+                            {text && <MessageFooter className="justify-between px-0 pt-1"><span className="mr-auto text-[9px] text-slate-600">{typeof message.metadata?.inputTokens === 'number' || typeof message.metadata?.outputTokens === 'number' ? `Entrada ${message.metadata?.inputTokens ?? '—'} · Saída ${message.metadata?.outputTokens ?? '—'} tokens` : ''}</span><Button type="button" variant="ghost" size="xs" onClick={() => void copyAnswer(message)} aria-label="Copiar resposta"><Copy data-icon="inline-start" />Copiar</Button></MessageFooter>}
                           </>}
                         </MessageContent>
                       </Message>

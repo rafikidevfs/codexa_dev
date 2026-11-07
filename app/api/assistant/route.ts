@@ -23,6 +23,8 @@ type AssistantMetadata = {
   modelId?: string
   requestedModel?: string
   fallbackUsed?: boolean
+  inputTokens?: number
+  outputTokens?: number
   totalTokens?: number
   conversationId?: string
   sources?: Array<{ title: string; sourceUrl: string | null; module: string }>
@@ -339,7 +341,7 @@ export async function POST(request: Request) {
     const recentQuestions = uiMessages.filter((message) => message.role === 'user').slice(-3).map(messageText).join('\n').slice(-1000)
     const knowledgeSources: AssistantKnowledgeEntry[] = []
     let knowledgeContext = ''
-    if (!selectedModel.supportsTools && shouldRetrieveKnowledge(userText)) {
+    if (!selectedModel.supportsTools && shouldRetrieveKnowledge(recentQuestions)) {
       const entries = await searchAssistantKnowledge(actor.sessionSupabase, recentQuestions, moduleSlug).catch((error) => {
         console.warn('[Codexa Assistant] knowledge_lookup_failed', { requestId, errorName: error instanceof Error ? error.name : 'UnknownError' })
         return []
@@ -428,6 +430,8 @@ export async function POST(request: Request) {
           requestedModel,
           actualModel: modelFetch.getActualModel(),
           finishReason,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
           totalTokens: usage.totalTokens,
         })
       },
@@ -455,6 +459,8 @@ export async function POST(request: Request) {
               requestedModel,
               modelId: actualModel,
               fallbackUsed: actualModel !== requestedModel,
+              inputTokens: part.totalUsage.inputTokens,
+              outputTokens: part.totalUsage.outputTokens,
               totalTokens: part.totalUsage.totalTokens,
               sources: uniqueSources.slice(0, 8).map((source) => ({ title: source.title, sourceUrl: source.sourceUrl, module: source.module })),
             }
@@ -470,6 +476,7 @@ export async function POST(request: Request) {
           const actualModel = modelFetch.getActualModel()
           const uniqueSources = [...new Map(usedSources.map((source) => [source.id, source])).values()]
           const metadata: AssistantMetadata = {
+            ...responseMessage.metadata,
             conversationId,
             modelId: actualModel,
             requestedModel,

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { AdminApiError } from '@/lib/supabase/server-client'
 import { getWorkspaceActor } from '@/lib/supabase/workspace-auth'
@@ -52,27 +52,70 @@ export async function POST(request: Request) {
     const chunks = chunkAssistantText(content)
     if (!chunks.length) return NextResponse.json({ error: 'O documento não contém texto indexável.' }, { status: 400 })
 
+    const keywords = Array.isArray(body?.keywords)
+      ? [...new Set(body.keywords.filter((keyword): keyword is string => typeof keyword === 'string').map((keyword) => keyword.trim().slice(0, 60)).filter(Boolean))].slice(0, 20)
+      : []
+    const identity = sourceUrl ?? title.toLocaleLowerCase('pt-BR')
+    const slug = `assistant-${createHash('sha256').update(`${actor.actorId}\u0000${moduleSlug}\u0000${identity}`).digest('hex')}`
+    const { data: existing, error: existingError } = await actor.sessionSupabase
+      .from('assistant_knowledge')
+      .select('id,content')
+      .eq('slug', slug)
+      .eq('created_by', actor.actorId)
+      .maybeSingle()
+    if (existingError && isAssistantSchemaMissing(existingError)) {
+      return NextResponse.json({ error: 'Aplique o SQL manual do assistente antes de indexar documentos.', sqlRequired: true }, { status: 503 })
+    }
+    if (existingError) {
+      console.warn('[Codexa Assistant] knowledge_document_lookup_failed', { code: existingError.code })
+      return NextResponse.json({ error: 'Não foi possível verificar o índice do documento.' }, { status: 503 })
+    }
+
+    if (existing?.content === content) {
+      const { count, error: countError } = await actor.sessionSupabase
+        .from('assistant_knowledge_chunks')
+        .select('id', { count: 'exact', head: true })
+        .eq('knowledge_id', existing.id)
+      if (countError && isAssistantSchemaMissing(countError)) {
+        return NextResponse.json({ error: 'Aplique o SQL manual do assistente antes de indexar documentos.', sqlRequired: true }, { status: 503 })
+      }
+      if (countError) {
+        console.warn('[Codexa Assistant] knowledge_chunks_count_failed', { code: countError.code })
+        return NextResponse.json({ error: 'Não foi possível verificar os fragmentos do documento.' }, { status: 503 })
+      }
+      if (count === chunks.length) {
+        const { error: metadataError } = await actor.sessionSupabase
+          .from('assistant_knowledge')
+          .update({ title, category, keywords, module_slug: moduleSlug, source_url: sourceUrl, is_active: true, updated_at: new Date().toISOString() })
+          .eq('id', existing.id)
+          .eq('created_by', actor.actorId)
+        if (metadataError) {
+          console.warn('[Codexa Assistant] knowledge_metadata_update_failed', { code: metadataError.code })
+          return NextResponse.json({ error: 'Não foi possível atualizar os metadados do documento.' }, { status: 503 })
+        }
+        return NextResponse.json({ id: existing.id, chunkCount: chunks.length, reusedEmbeddings: true }, { status: 200 })
+      }
+    }
+
     const embeddings: number[][] = []
     for (let offset = 0; offset < chunks.length; offset += 24) {
       embeddings.push(...await createEmbeddings(chunks.slice(offset, offset + 24)))
     }
 
-    const slug = `assistant-${randomUUID()}`
     const { data: document, error: documentError } = await actor.sessionSupabase
       .from('assistant_knowledge')
-      .insert({
+      .upsert({
         slug,
         title,
         category,
         content,
-        keywords: Array.isArray(body?.keywords)
-          ? body.keywords.filter((keyword): keyword is string => typeof keyword === 'string').map((keyword) => keyword.trim().slice(0, 60)).filter(Boolean).slice(0, 20)
-          : [],
+        keywords,
         module_slug: moduleSlug,
         source_url: sourceUrl,
         created_by: actor.actorId,
         is_active: true,
-      })
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'slug' })
       .select('id')
       .single()
 
@@ -80,7 +123,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Aplique o SQL manual do assistente antes de indexar documentos.', sqlRequired: true }, { status: 503 })
     }
     if (documentError || !document) {
-      console.warn('[Codexa Assistant] knowledge_document_create_failed', { code: documentError?.code })
+      console.warn('[Codexa Assistant] knowledge_document_upsert_failed', { code: documentError?.code })
       return NextResponse.json({ error: 'Não foi possível armazenar o documento.' }, { status: 503 })
     }
 
@@ -90,14 +133,25 @@ export async function POST(request: Request) {
       content: chunk,
       embedding: `[${embeddings[index].map((value) => value.toFixed(8)).join(',')}]`,
     }))
-    const { error: chunksError } = await actor.sessionSupabase.from('assistant_knowledge_chunks').insert(chunkRows)
+    const { error: chunksError } = await actor.sessionSupabase
+      .from('assistant_knowledge_chunks')
+      .upsert(chunkRows, { onConflict: 'knowledge_id,chunk_index' })
     if (chunksError) {
-      await actor.sessionSupabase.from('assistant_knowledge').delete().eq('id', document.id).eq('created_by', actor.actorId)
-      console.warn('[Codexa Assistant] knowledge_chunks_create_failed', { code: chunksError.code })
+      console.warn('[Codexa Assistant] knowledge_chunks_upsert_failed', { code: chunksError.code })
       return NextResponse.json({ error: isAssistantSchemaMissing(chunksError) ? 'Aplique o SQL manual do assistente antes de indexar documentos.' : 'Não foi possível indexar o documento.', sqlRequired: isAssistantSchemaMissing(chunksError) }, { status: 503 })
     }
 
-    return NextResponse.json({ id: document.id, chunkCount: chunks.length }, { status: 201 })
+    const { error: staleChunksError } = await actor.sessionSupabase
+      .from('assistant_knowledge_chunks')
+      .delete()
+      .eq('knowledge_id', document.id)
+      .gte('chunk_index', chunks.length)
+    if (staleChunksError) {
+      console.warn('[Codexa Assistant] knowledge_stale_chunks_cleanup_failed', { code: staleChunksError.code })
+      return NextResponse.json({ error: 'O documento foi indexado, mas não foi possível remover fragmentos antigos.' }, { status: 503 })
+    }
+
+    return NextResponse.json({ id: document.id, chunkCount: chunks.length, reusedEmbeddings: false }, { status: existing ? 200 : 201 })
   } catch (error) {
     if (error instanceof AdminApiError) return NextResponse.json({ error: error.message }, { status: error.status })
     console.error('[Codexa Assistant] knowledge_ingest_failed', { errorName: error instanceof Error ? error.name : 'UnknownError' })

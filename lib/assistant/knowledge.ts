@@ -82,46 +82,7 @@ function isMissingKnowledgeSchema(error: { code?: string }): boolean {
   return ['PGRST202', 'PGRST205', '42P01', '42883'].includes(error.code ?? '')
 }
 
-export async function searchAssistantKnowledge(
-  supabase: SupabaseClient,
-  query: string,
-  moduleSlug?: string,
-  limit = 5,
-): Promise<AssistantKnowledgeEntry[]> {
-  const normalizedQuery = query.trim().slice(0, 700)
-  if (!normalizedQuery) return []
-
-  const { data: visibleChunks, error: chunksError } = await supabase
-    .from('assistant_knowledge_chunks')
-    .select('id')
-    .limit(1)
-  if (chunksError) {
-    if (isMissingKnowledgeSchema(chunksError)) {
-      console.info('[Codexa Assistant] knowledge_schema_not_applied', { code: chunksError.code })
-      return []
-    }
-    console.warn('[Codexa Assistant] knowledge_access_failed', { code: chunksError.code })
-    return []
-  }
-  if (!visibleChunks?.length) return []
-
-  const [embedding] = await createEmbeddings([normalizedQuery])
-  const { data, error } = await supabase.rpc('search_assistant_knowledge', {
-    p_query: normalizedQuery,
-    p_embedding: `[${embedding.map((value) => value.toFixed(8)).join(',')}]`,
-    p_module: moduleSlug ?? null,
-    p_limit: Math.min(Math.max(limit, 1), 8),
-  })
-
-  if (error) {
-    if (isMissingKnowledgeSchema(error)) {
-      console.info('[Codexa Assistant] knowledge_schema_not_applied', { code: error.code })
-      return []
-    }
-    console.warn('[Codexa Assistant] knowledge_lookup_failed', { code: error.code })
-    return []
-  }
-
+function parseKnowledgeEntries(data: unknown): AssistantKnowledgeEntry[] {
   if (!Array.isArray(data)) return []
   return data.flatMap((value) => {
     if (typeof value !== 'object' || value === null) return []
@@ -137,5 +98,83 @@ export async function searchAssistantKnowledge(
       sourceUrl: typeof row.source_url === 'string' ? row.source_url : null,
       relevance: typeof row.relevance === 'number' ? row.relevance : 0,
     }]
-  }).slice(0, 8)
+  })
+}
+
+export async function searchAssistantKnowledge(
+  supabase: SupabaseClient,
+  query: string,
+  moduleSlug?: string,
+  limit = 5,
+): Promise<AssistantKnowledgeEntry[]> {
+  const normalizedQuery = query.trim().slice(0, 700)
+  if (!normalizedQuery) return []
+  const resultLimit = Math.min(Math.max(limit, 1), 8)
+
+  async function searchLexically() {
+    const { data, error } = await supabase.rpc('search_assistant_knowledge_text', {
+      p_query: normalizedQuery,
+      p_module: moduleSlug ?? null,
+      p_limit: resultLimit,
+    })
+    if (error) {
+      if (isMissingKnowledgeSchema(error)) {
+        console.info('[Codexa Assistant] knowledge_text_search_unavailable', { code: error.code })
+      } else {
+        console.warn('[Codexa Assistant] knowledge_text_search_failed', { code: error.code })
+      }
+      return []
+    }
+    return parseKnowledgeEntries(data).slice(0, resultLimit)
+  }
+
+  const { data: visibleChunks, error: chunksError } = await supabase
+    .from('assistant_knowledge_chunks')
+    .select('id')
+    .limit(1)
+  if (chunksError) {
+    if (isMissingKnowledgeSchema(chunksError)) {
+      console.info('[Codexa Assistant] knowledge_schema_not_applied', { code: chunksError.code })
+      return []
+    }
+    console.warn('[Codexa Assistant] knowledge_access_failed', { code: chunksError.code })
+    return []
+  }
+
+  const lexicalEntries = await searchLexically()
+  if (!visibleChunks?.length) return lexicalEntries
+
+  let embedding: number[]
+  try {
+    const embeddings = await createEmbeddings([normalizedQuery])
+    embedding = embeddings[0]
+  } catch (error) {
+    console.warn('[Codexa Assistant] knowledge_embedding_failed', { errorName: error instanceof Error ? error.name : 'UnknownError' })
+    return lexicalEntries
+  }
+
+  const { data, error } = await supabase.rpc('search_assistant_knowledge', {
+    p_query: normalizedQuery,
+    p_embedding: `[${embedding.map((value) => value.toFixed(8)).join(',')}]`,
+    p_module: moduleSlug ?? null,
+    p_limit: Math.max(resultLimit - Math.min(2, resultLimit - 1), 1),
+  })
+
+  if (error) {
+    if (isMissingKnowledgeSchema(error)) {
+      console.info('[Codexa Assistant] knowledge_vector_search_unavailable', { code: error.code })
+    } else {
+      console.warn('[Codexa Assistant] knowledge_vector_search_failed', { code: error.code })
+    }
+    return lexicalEntries
+  }
+
+  const combined = [...parseKnowledgeEntries(data), ...lexicalEntries]
+  const unique = new Map<string, AssistantKnowledgeEntry>()
+  for (const entry of combined) {
+    const existing = unique.get(entry.id)
+    if (!existing) unique.set(entry.id, entry)
+    else if (entry.relevance > existing.relevance) unique.set(entry.id, { ...existing, relevance: entry.relevance })
+  }
+  return [...unique.values()].slice(0, resultLimit)
 }
