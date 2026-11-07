@@ -89,6 +89,13 @@ export function CommandAssistant({ context, module, isOpen, onClose, onConversat
   const [expanded, setExpanded] = useState(false)
   const [minimized, setMinimized] = useState(false)
   const [actionError, setActionError] = useState('')
+  const { data: modelCatalog, error: modelError, isLoading: modelsLoading } = useSWR<ModelCatalog>(isOpen ? '/api/assistant/models' : null, fetchAssistantJson)
+  const { data: historyData, error: historyError, mutate: mutateConversations } = useSWR<ConversationList>(isOpen ? '/api/assistant/conversations' : null, fetchAssistantJson)
+  const { data: restoredData } = useSWR<ConversationDetail>(
+    isOpen && restoreConversationId ? `/api/assistant/conversations/${restoreConversationId}` : null,
+    fetchAssistantJson,
+  )
+
   const requestState = useRef<RequestState>({ context, module, conversationId: null, modelId: '', fallbackEnabled: false, fallbackModels: [], storageReady: false })
   requestState.current = {
     context,
@@ -99,13 +106,6 @@ export function CommandAssistant({ context, module, isOpen, onClose, onConversat
     fallbackModels: fallbackModels.filter(Boolean),
     storageReady: historyData?.storageReady === true,
   }
-
-  const { data: modelCatalog, error: modelError, isLoading: modelsLoading } = useSWR<ModelCatalog>(isOpen ? '/api/assistant/models' : null, fetchAssistantJson)
-  const { data: historyData, error: historyError, mutate: mutateConversations } = useSWR<ConversationList>(isOpen ? '/api/assistant/conversations' : null, fetchAssistantJson)
-  const { data: restoredData } = useSWR<ConversationDetail>(
-    isOpen && restoreConversationId ? `/api/assistant/conversations/${restoreConversationId}` : null,
-    fetchAssistantJson,
-  )
 
   const transport = useMemo(() => new DefaultChatTransport<AssistantUIMessage>({
     api: '/api/assistant',
