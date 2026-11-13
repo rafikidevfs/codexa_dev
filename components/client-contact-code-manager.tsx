@@ -12,7 +12,7 @@ type ClientContactCode = {
 }
 
 type CodeList = { codes: ClientContactCode[] }
-type ClientContactCodeManagerProps = { client: { id: string; legal_name: string }; onClose: () => void }
+type ClientContactCodeManagerProps = { client: { id: string; legal_name: string }; canManage: boolean; onClose: () => void }
 
 async function fetchCodes(url: string): Promise<CodeList> {
   const response = await fetch(url, { cache: 'no-store' })
@@ -33,7 +33,7 @@ async function sendCodeRequest(method: 'POST' | 'DELETE', body: Record<string, s
   return result
 }
 
-export function ClientContactCodeManager({ client, onClose }: ClientContactCodeManagerProps) {
+export function ClientContactCodeManager({ client, canManage, onClose }: ClientContactCodeManagerProps) {
   const [saving, setSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [notice, setNotice] = useState('')
@@ -43,6 +43,7 @@ export function ClientContactCodeManager({ client, onClose }: ClientContactCodeM
   )
 
   async function generateCode() {
+    if (!canManage) return
     const activeCode = data?.codes.find((item) => !item.revoked_at)
     if (activeCode && !window.confirm('Gerar outro código e revogar o código ativo atual?')) return
 
@@ -61,6 +62,7 @@ export function ClientContactCodeManager({ client, onClose }: ClientContactCodeM
   }
 
   async function revokeCode(codeId: string) {
+    if (!canManage) return
     if (!window.confirm('Revogar este código? Ele deixará de liberar o acesso aos contatos.')) return
 
     setSaving(true)
@@ -94,7 +96,7 @@ export function ClientContactCodeManager({ client, onClose }: ClientContactCodeM
           <div>
             <p className="text-xs uppercase tracking-wider text-blue-300">Códigos de acesso</p>
             <h2 id="client-contact-codes-title" className="mt-1 text-lg font-semibold text-white">{client.legal_name}</h2>
-            <p className="mt-1 text-xs text-slate-500">Cada cliente tem um código ativo por vez.</p>
+            <p className="mt-1 text-xs text-slate-500">{canManage ? 'Cada cliente tem um código ativo por vez.' : 'Acesso somente para visualizar o código ativo.'}</p>
           </div>
           <button type="button" onClick={onClose} disabled={saving} aria-label="Fechar códigos" className="text-slate-500 hover:text-white disabled:opacity-40"><X className="size-5" /></button>
         </div>
@@ -118,7 +120,7 @@ export function ClientContactCodeManager({ client, onClose }: ClientContactCodeM
                   <div className="flex shrink-0 gap-2">
                     {!item.revoked_at && <>
                       <button type="button" onClick={() => void copyCode(item.code)} aria-label="Copiar código" className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] px-2.5 py-2 text-xs text-slate-300 hover:bg-white/[0.04]"><Copy className="size-3.5" />Copiar</button>
-                      <button type="button" disabled={saving} onClick={() => void revokeCode(item.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/25 px-2.5 py-2 text-xs text-rose-300 hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 className="size-3.5" />Revogar</button>
+                      {canManage && <button type="button" disabled={saving} onClick={() => void revokeCode(item.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/25 px-2.5 py-2 text-xs text-rose-300 hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 className="size-3.5" />Revogar</button>}
                     </>}
                   </div>
                 </div>
@@ -126,15 +128,15 @@ export function ClientContactCodeManager({ client, onClose }: ClientContactCodeM
             ))}
           </ul>
         ) : !error ? (
-          <p className="rounded-lg border border-white/[0.07] px-3 py-4 text-xs text-slate-500">Nenhum código foi encontrado para este cliente.</p>
+          <p className="rounded-lg border border-white/[0.07] px-3 py-4 text-xs text-slate-500">{canManage ? 'Nenhum código foi encontrado para este cliente.' : 'Nenhum código ativo está disponível para este cliente.'}</p>
         ) : null}
 
         <div className="mt-5 flex justify-end gap-2 border-t border-white/[0.06] pt-4">
           <button type="button" onClick={onClose} disabled={saving} className="rounded-lg px-3 py-2 text-xs text-slate-300 disabled:opacity-40">Fechar</button>
-          <button type="button" onClick={() => void generateCode()} disabled={saving || isLoading} className="inline-flex items-center gap-2 rounded-lg bg-blue-500 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">
+          {canManage && <button type="button" onClick={() => void generateCode()} disabled={saving || isLoading} className="inline-flex items-center gap-2 rounded-lg bg-blue-500 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">
             {saving ? <Loader2 className="size-3.5 animate-spin" /> : data?.codes.some((item) => !item.revoked_at) ? <KeyRound className="size-3.5" /> : <Plus className="size-3.5" />}
             {saving ? 'Gerando...' : 'Gerar código novo'}
-          </button>
+          </button>}
         </div>
       </section>
     </div>

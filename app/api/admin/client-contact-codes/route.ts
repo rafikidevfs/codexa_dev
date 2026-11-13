@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { AdminApiError } from '@/lib/supabase/server-client'
-import { requireWorkspacePermission } from '@/lib/supabase/workspace-auth'
+import { getWorkspaceActor, getWorkspacePermissions, requireWorkspacePermission } from '@/lib/supabase/workspace-auth'
 import { normalizeWorkspaceRoleName } from '@/lib/workspace-access'
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -38,18 +38,38 @@ function validClientId(value: unknown): value is string {
 
 export async function GET(request: Request) {
   try {
-    const actor = await requireCodeAdmin('generate_contact_codes')
+    const actor = await getWorkspaceActor()
+    const permissions = await getWorkspacePermissions(actor)
+    const isAdmin = permissions.has('*')
+    if (!isAdmin && !permissions.has('clients:view')) {
+      throw new AdminApiError('Você não tem permissão para visualizar clientes.', 403)
+    }
+    if (!isAdmin && !permissions.has('clients:view_contact_codes')) {
+      throw new AdminApiError('Você não tem permissão para visualizar o código do cliente.', 403)
+    }
+
     const clientId = new URL(request.url).searchParams.get('clientId')
     if (!validClientId(clientId)) {
       return NextResponse.json({ error: 'Cliente inválido.' }, { status: 400 })
     }
 
-    const { data, error } = await actor.supabase
+    const { data: visibleClient, error: visibilityError } = await actor.sessionSupabase
+      .from('clients')
+      .select('id')
+      .eq('id', clientId.trim())
+      .maybeSingle()
+    if (visibilityError) throw visibilityError
+    if (!visibleClient) return NextResponse.json({ error: 'Cliente não encontrado.' }, { status: 404 })
+
+    let query = actor.supabase
       .from('client_contact_codes')
-      .select('id,client_id,code,created_at,created_by,revoked_at,revoked_by')
+      .select('id,client_id,code,created_at,revoked_at')
       .eq('client_id', clientId.trim())
+    if (!isAdmin) query = query.is('revoked_at', null)
+
+    const { data, error } = await query
       .order('created_at', { ascending: false })
-      .limit(20)
+      .limit(isAdmin ? 20 : 1)
 
     if (error) throw error
     return NextResponse.json({ codes: data ?? [] }, { headers: { 'Cache-Control': 'private, no-store' } })

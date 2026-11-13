@@ -80,6 +80,7 @@ const actionLabels: Record<string, string> = {
   assign: 'Atribuir', change_status: 'Alterar status', manage_licenses: 'Gerenciar licenças',
   release_modules: 'Liberar módulos', manage_users: 'Gerenciar usuários', manage_roles: 'Gerenciar cargos',
   view_audit: 'Consultar auditoria',
+  view_contact_codes: 'Visualizar código de cliente',
   generate_contact_codes: 'Gerar códigos de cliente',
   revoke_contact_codes: 'Revogar códigos de cliente',
 }

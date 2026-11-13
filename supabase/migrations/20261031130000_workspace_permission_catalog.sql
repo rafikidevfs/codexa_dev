@@ -6,7 +6,7 @@ with valid_permissions(module_name, action_name) as (
     ('dashboard', 'view'),
     ('dashboard_comercial', 'view'),
     ('leads', 'view'), ('leads', 'create'), ('leads', 'update'), ('leads', 'delete'), ('leads', 'assign'), ('leads', 'change_status'), ('leads', 'export'),
-    ('clients', 'view'), ('clients', 'create'), ('clients', 'update'), ('clients', 'delete'), ('clients', 'assign'), ('clients', 'export'),
+    ('clients', 'view'), ('clients', 'create'), ('clients', 'update'), ('clients', 'delete'), ('clients', 'assign'), ('clients', 'export'), ('clients', 'view_contact_codes'), ('clients', 'generate_contact_codes'), ('clients', 'revoke_contact_codes'),
     ('contacts', 'view'), ('contacts', 'create'), ('contacts', 'update'), ('contacts', 'delete'), ('contacts', 'assign'), ('contacts', 'export'),
     ('proposals', 'view'), ('proposals', 'create'), ('proposals', 'update'), ('proposals', 'delete'), ('proposals', 'approve'), ('proposals', 'change_status'), ('proposals', 'export'),
     ('contracts', 'view'), ('contracts', 'create'), ('contracts', 'update'), ('contracts', 'delete'), ('contracts', 'approve'), ('contracts', 'export'),
@@ -44,7 +44,7 @@ with valid_permissions(module_name, action_name) as (
   values
     ('dashboard', 'view'), ('dashboard_comercial', 'view'),
     ('leads', 'view'), ('leads', 'create'), ('leads', 'update'), ('leads', 'delete'), ('leads', 'assign'), ('leads', 'change_status'), ('leads', 'export'),
-    ('clients', 'view'), ('clients', 'create'), ('clients', 'update'), ('clients', 'delete'), ('clients', 'assign'), ('clients', 'export'),
+    ('clients', 'view'), ('clients', 'create'), ('clients', 'update'), ('clients', 'delete'), ('clients', 'assign'), ('clients', 'export'), ('clients', 'view_contact_codes'), ('clients', 'generate_contact_codes'), ('clients', 'revoke_contact_codes'),
     ('contacts', 'view'), ('contacts', 'create'), ('contacts', 'update'), ('contacts', 'delete'), ('contacts', 'assign'), ('contacts', 'export'),
     ('proposals', 'view'), ('proposals', 'create'), ('proposals', 'update'), ('proposals', 'delete'), ('proposals', 'approve'), ('proposals', 'change_status'), ('proposals', 'export'),
     ('contracts', 'view'), ('contracts', 'create'), ('contracts', 'update'), ('contracts', 'delete'), ('contracts', 'approve'), ('contracts', 'export'),

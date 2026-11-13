@@ -40,6 +40,7 @@ grant all on table public.client_contact_codes to service_role;
 
 insert into public.access_permissions (id, module_name, action_name, is_active)
 values
+  (gen_random_uuid(), 'clients', 'view_contact_codes', true),
   (gen_random_uuid(), 'clients', 'generate_contact_codes', true),
   (gen_random_uuid(), 'clients', 'revoke_contact_codes', true)
 on conflict (module_name, action_name) do update
