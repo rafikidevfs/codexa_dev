@@ -80,6 +80,14 @@ const actionLabels: Record<string, string> = {
   assign: 'Atribuir', change_status: 'Alterar status', manage_licenses: 'Gerenciar licenças',
   release_modules: 'Liberar módulos', manage_users: 'Gerenciar usuários', manage_roles: 'Gerenciar cargos',
   view_audit: 'Consultar auditoria',
+  generate_contact_codes: 'Gerar códigos de cliente',
+  revoke_contact_codes: 'Revogar códigos de cliente',
+}
+
+const adminOnlyPermissionKeys = new Set(['clients:generate_contact_codes', 'clients:revoke_contact_codes'])
+
+function isAdminOnlyPermission(permission: Pick<Permission, 'module_name' | 'action_name'>) {
+  return adminOnlyPermissionKeys.has(`${permission.module_name}:${permission.action_name}`)
 }
 
 const inputClass = 'mt-1.5 w-full rounded-lg border border-white/[0.08] bg-[#0d1118] px-3 py-2.5 text-sm text-slate-200 outline-none focus:border-blue-400/60'
@@ -208,7 +216,7 @@ export function RoleManagementWorkspace({ initialView = 'roles' }: { initialView
   }
 
   function togglePermission(permission: Permission, checked: boolean) {
-    if (roleName.toLowerCase() === 'admin') return
+    if (roleName.toLowerCase() === 'admin' || isAdminOnlyPermission(permission)) return
     const permissionName = `${permission.module_name}:${permission.action_name}`
     setRoleGrants((current) => checked
       ? [...new Set([...current, permissionName])]
@@ -217,7 +225,9 @@ export function RoleManagementWorkspace({ initialView = 'roles' }: { initialView
 
   function toggleModulePermissions(module: string, modulePermissions: Permission[]) {
     if (roleName.toLowerCase() === 'admin') return
-    const keys = modulePermissions.map((permission) => `${permission.module_name}:${permission.action_name}`)
+    const keys = modulePermissions
+      .filter((permission) => !isAdminOnlyPermission(permission))
+      .map((permission) => `${permission.module_name}:${permission.action_name}`)
     const allSelected = keys.every((key) => roleGrants.includes(key))
     setRoleGrants((current) => allSelected ? current.filter((key) => !keys.includes(key)) : [...new Set([...current, ...keys])])
   }
@@ -337,6 +347,24 @@ export function RoleManagementWorkspace({ initialView = 'roles' }: { initialView
     }
   }
 
+  async function deleteMember(member: Member) {
+    if (member.user_id === currentUserId) return
+    if (!window.confirm(`Excluir ${member.full_name} e revogar o acesso ao workspace? Esta ação não pode ser desfeita.`)) return
+    setError('')
+    setNotice('')
+    setSaving(true)
+    try {
+      const result = await api<{ warning?: string | null }>(`/api/admin/rbac/users/${member.id}`, { method: 'DELETE' })
+      setMemberDetails(null)
+      setNotice(result.warning || 'Usuário excluído e acesso revogado.')
+      await load()
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Não foi possível excluir o usuário.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function inviteMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setSaving(true)
@@ -356,7 +384,7 @@ export function RoleManagementWorkspace({ initialView = 'roles' }: { initialView
       setInviteOpen(false)
       setNotice(result.warning || (result.accountCreated
         ? 'Conta criada e associada ao cargo. Compartilhe a senha inicial com a pessoa por um canal seguro.'
-        : 'Conta existente associada ao cargo selecionado.'))
+        : 'Conta existente confirmada, senha sincronizada quando informada e associada ao cargo selecionado.'))
       await load()
     } catch (inviteError) {
       setError(inviteError instanceof Error ? inviteError.message : 'Não foi possível criar o usuário.')
@@ -437,7 +465,7 @@ export function RoleManagementWorkspace({ initialView = 'roles' }: { initialView
                       const actionLabel = actionLabels[permission.action_name] ?? permission.action_name
                       return <div key={permission.id} className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${checked ? 'border-blue-400/20 bg-blue-400/[0.06]' : 'border-white/[0.06] bg-white/[0.015]'}`}>
                         <span className={`text-[11px] ${checked ? 'text-slate-200' : 'text-slate-500'}`}>{actionLabel}</span>
-                        <PermissionSwitch checked={checked} disabled={roleName.toLowerCase() === 'admin'} label={`${checked ? 'Bloquear' : 'Liberar'} ${actionLabel} em ${moduleLabels[module] ?? module}`} onChange={(value) => togglePermission(permission, value)} />
+                        <PermissionSwitch checked={checked} disabled={roleName.toLowerCase() === 'admin' || isAdminOnlyPermission(permission)} label={`${checked ? 'Bloquear' : 'Liberar'} ${actionLabel} em ${moduleLabels[module] ?? module}`} onChange={(value) => togglePermission(permission, value)} />
                       </div>
                     })}</div>
                   </div>})}</div>
@@ -477,7 +505,7 @@ export function RoleManagementWorkspace({ initialView = 'roles' }: { initialView
                 <td className="px-4 py-3"><select aria-label={`Cargo de ${member.full_name}`} disabled={self} value={member.role_name} onChange={(event) => void updateMember(member, { roleName: event.target.value })} className="rounded-lg border border-white/[0.08] bg-[#0d1118] px-2 py-2 text-xs text-slate-200 disabled:opacity-50">{roles.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></td>
                 <td className="px-4 py-3"><select aria-label={`Status de ${member.full_name}`} disabled={self} value={member.status.replace(/[\'"]/g, '').trim().toLowerCase() === 'ativo' || member.status.toLowerCase() === 'active' ? 'Ativo' : 'Inativo'} onChange={(event) => void updateMember(member, { status: event.target.value })} className="rounded-lg border border-white/[0.08] bg-[#0d1118] px-2 py-2 text-xs text-slate-200 disabled:opacity-50"><option value="Ativo">Ativo</option><option value="Inativo">Inativo</option></select></td>
                 <td className="px-4 py-3 text-xs text-slate-500">{new Date(member.created_at).toLocaleDateString('pt-BR')}</td>
-                <td className="px-4 py-3"><div className="flex gap-1.5"><button type="button" onClick={() => { setMemberDetails(member); setExpandedMember(member.id); void loadMemberOverrides(member.id) }} className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] px-2.5 py-2 text-xs text-slate-300 hover:bg-white/[0.04]"><Eye className="size-3.5" />Detalhes</button><button type="button" disabled={self} onClick={() => { setEditingMember(member); setMemberDetails(null) }} className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] px-2.5 py-2 text-xs text-slate-300 hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-40"><Pencil className="size-3.5" />Editar</button></div></td>
+                <td className="px-4 py-3"><div className="flex gap-1.5"><button type="button" onClick={() => { setMemberDetails(member); setExpandedMember(member.id); void loadMemberOverrides(member.id) }} className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] px-2.5 py-2 text-xs text-slate-300 hover:bg-white/[0.04]"><Eye className="size-3.5" />Detalhes</button><button type="button" disabled={self || saving} onClick={() => { setEditingMember(member); setMemberDetails(null) }} className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] px-2.5 py-2 text-xs text-slate-300 hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-40"><Pencil className="size-3.5" />Editar</button><button type="button" disabled={self || saving} onClick={() => void deleteMember(member)} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/25 px-2.5 py-2 text-xs text-rose-300 hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 className="size-3.5" />Excluir</button></div></td>
               </tr>
             })}</tbody>
           </table>
@@ -496,7 +524,7 @@ export function RoleManagementWorkspace({ initialView = 'roles' }: { initialView
             <div><dt className="text-xs text-slate-500">Status</dt><dd className="mt-1 text-slate-200">{memberDetails.status}</dd></div>
             <div><dt className="text-xs text-slate-500">Criado em</dt><dd className="mt-1 text-slate-200">{new Date(memberDetails.created_at).toLocaleDateString('pt-BR')}</dd></div>
           </dl>
-          {expandedMember === memberDetails.id && <details className="mt-6 border-t border-white/[0.06] pt-4"><summary className="cursor-pointer list-none text-xs font-semibold text-slate-300">Permissões individuais</summary><div className="mt-2"><p className="text-xs font-semibold text-slate-300">Exceções individuais</p><p className="mt-1 text-[11px] text-slate-500">Herdar remove a exceção e mantém a permissão do cargo.</p><div className="mt-3 max-h-80 space-y-2 overflow-y-auto">{Object.entries(permissionsByGroup).map(([group, groupPermissions]) => { const byModule = Object.entries(groupPermissions.reduce<Record<string, Permission[]>>((modules, permission) => { modules[permission.module_name] = [...(modules[permission.module_name] ?? []), permission]; return modules }, {})); return <details key={group} className="rounded-lg border border-white/[0.06] bg-white/[0.015]"><summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-blue-300">{group}</summary><div className="space-y-2 px-2 pb-2">{byModule.map(([module, modulePermissions]) => <details key={module} className="rounded-md border border-white/[0.05]"><summary className="cursor-pointer px-3 py-2 text-xs font-medium text-slate-300">{moduleLabels[module] ?? module}</summary><div className="space-y-1 px-2 pb-2">{modulePermissions.map((permission) => { const override = permissionOverrides[memberDetails.id]?.find((item) => item.module_name === permission.module_name && item.action_name === permission.action_name); return <label key={permission.id} className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] px-3 py-2 text-xs text-slate-300"><span>{actionLabels[permission.action_name] ?? permission.action_name}</span><select value={override?.effect ?? 'inherit'} onChange={(event) => void updateMemberOverride(memberDetails.id, permission.module_name, permission.action_name, event.target.value as Override['effect'])} className="rounded border border-white/[0.08] bg-[#0d1118] px-2 py-1.5 text-[11px] text-slate-200"><option value="inherit">Herdar</option><option value="allow">Permitir</option><option value="deny">Negar</option></select></label> })}</div></details>)}</div></details> })}</div></div></details>}
+          {expandedMember === memberDetails.id && <details className="mt-6 border-t border-white/[0.06] pt-4"><summary className="cursor-pointer list-none text-xs font-semibold text-slate-300">Permissões individuais</summary><div className="mt-2"><p className="text-xs font-semibold text-slate-300">Exceções individuais</p><p className="mt-1 text-[11px] text-slate-500">Herdar remove a exceção e mantém a permissão do cargo.</p><div className="mt-3 max-h-80 space-y-2 overflow-y-auto">{Object.entries(permissionsByGroup).map(([group, groupPermissions]) => { const byModule = Object.entries(groupPermissions.reduce<Record<string, Permission[]>>((modules, permission) => { modules[permission.module_name] = [...(modules[permission.module_name] ?? []), permission]; return modules }, {})); return <details key={group} className="rounded-lg border border-white/[0.06] bg-white/[0.015]"><summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-blue-300">{group}</summary><div className="space-y-2 px-2 pb-2">{byModule.map(([module, modulePermissions]) => <details key={module} className="rounded-md border border-white/[0.05]"><summary className="cursor-pointer px-3 py-2 text-xs font-medium text-slate-300">{moduleLabels[module] ?? module}</summary><div className="space-y-1 px-2 pb-2">{modulePermissions.map((permission) => { const override = permissionOverrides[memberDetails.id]?.find((item) => item.module_name === permission.module_name && item.action_name === permission.action_name); return <label key={permission.id} className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] px-3 py-2 text-xs text-slate-300"><span>{actionLabels[permission.action_name] ?? permission.action_name}</span><select disabled={isAdminOnlyPermission(permission) && memberDetails.role_name.trim().toLowerCase() !== 'admin'} value={override?.effect ?? 'inherit'} onChange={(event) => void updateMemberOverride(memberDetails.id, permission.module_name, permission.action_name, event.target.value as Override['effect'])} className="rounded border border-white/[0.08] bg-[#0d1118] px-2 py-1.5 text-[11px] text-slate-200"><option value="inherit">Herdar</option><option value="allow">Permitir</option><option value="deny">Negar</option></select></label> })}</div></details>)}</div></details> })}</div></div></details>}
           <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setMemberDetails(null)} className="rounded-lg px-3 py-2 text-xs text-slate-300">Fechar</button><button type="button" disabled={memberDetails.user_id === currentUserId} onClick={() => { setEditingMember(memberDetails); setMemberDetails(null) }} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-500 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"><Pencil className="size-3.5" />Editar</button></div>
         </section>
       </div>}

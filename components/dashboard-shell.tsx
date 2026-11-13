@@ -21,11 +21,10 @@ import { UserAvatar } from '@/components/user-avatar'
 import { createClient } from '@/lib/supabase/client'
 import { hasWorkspaceAccess } from '@/lib/workspace-access'
 import { workspaceLabel } from '@/lib/workspace-modules'
-import { applyWorkspaceAppearance, applyWorkspaceTheme, defaultAppearance, getWorkspaceThemePreference, type WorkspaceAppearance } from '@/lib/workspace-theme'
+import { applyWorkspaceAppearance, defaultAppearance, resolveIconColor, type WorkspaceAppearance } from '@/lib/workspace-theme'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faChartLine, faUserPlus, faUsers, faAddressBook, faFileSignature, faFileContract, faDiagramProject, faListCheck, faCodePullRequest, faHeadset, faServer, faPuzzlePiece, faLayerGroup, faKey, faArrowTrendUp, faArrowTrendDown, faChartPie, faUserShield, faUserGear, faShieldHalved, faClockRotateLeft, faUserCircle, faPalette, faGear, faMedal, faTrophy, faFolderOpen, faSliders } from '@fortawesome/free-solid-svg-icons'
+import { faChartLine, faUserPlus, faUsers, faFileSignature, faFileContract, faDiagramProject, faCodePullRequest, faHeadset, faServer, faPuzzlePiece, faLayerGroup, faKey, faArrowTrendUp, faDollarSign, faArrowTrendDown, faChartPie, faUserShield, faUserGear, faShieldHalved, faClockRotateLeft, faUserCircle, faPalette, faGear, faMedal, faTrophy, faFolderOpen, faSliders } from '@fortawesome/free-solid-svg-icons'
 import {
-  Activity,
   Bell,
   BriefcaseBusiness,
   Building2,
@@ -52,7 +51,6 @@ import {
   Sparkles,
   ShieldCheck,
   Users,
-  WalletCards,
   X,
 } from 'lucide-react'
 
@@ -60,8 +58,8 @@ const navigationGroups = [
   { label: 'Workspace', items: [{ label: 'Dashboard', icon: faChartLine }, { label: 'Visão comercial', icon: faChartLine }, { label: 'Documentos', icon: faFolderOpen }] },
   { label: 'Relacionamento', items: [
     { label: 'Leads', icon: faUserPlus },
-    { label: 'Clientes', icon: faUsers },
-    { label: 'Contatos', icon: faAddressBook },
+  { label: 'Clientes', icon: faUsers },
+
   ] },
   { label: 'Comercial', items: [
     { label: 'Propostas', icon: faFileSignature },
@@ -69,7 +67,6 @@ const navigationGroups = [
   ] },
   { label: 'Operações', items: [
     { label: 'Projetos', icon: faDiagramProject },
-    { label: 'Tarefas', icon: faListCheck },
     { label: 'Solicitações de alteração', icon: faCodePullRequest },
     { label: 'Suporte', icon: faHeadset },
   ] },
@@ -83,8 +80,8 @@ const navigationGroups = [
     { label: 'Contas a receber', icon: faArrowTrendUp },
     { label: 'Contas a pagar', icon: faArrowTrendDown },
     { label: 'Fluxo de caixa', icon: faChartLine },
-    { label: 'Transações', icon: faArrowTrendUp },
-    { label: 'Categorias financeiras', icon: faChartPie },
+    { label: 'Recorrências', icon: faDollarSign },
+    { label: 'Orçamento', icon: faChartPie },
   ] },
   { label: 'Administração', items: [
     { label: 'Relatórios', icon: faChartPie },
@@ -104,19 +101,19 @@ const navigationGroups = [
 ]
 
 const sectionSlugs: Record<string, string> = {
-  Dashboard: 'dashboard', 'Visão comercial': 'comercial', Documentos: 'documentos', Leads: 'leads', Clientes: 'clientes', Contatos: 'contatos', Propostas: 'propostas', Contratos: 'contratos',
-  Projetos: 'projetos', Tarefas: 'tarefas', 'Solicitações de alteração': 'solicitacoes', Suporte: 'suporte', 'Sistemas dos clientes': 'sistemas',
+  Dashboard: 'dashboard', 'Visão comercial': 'comercial', Documentos: 'documentos', Leads: 'leads', Clientes: 'clientes', Propostas: 'propostas', Contratos: 'contratos',
+  Projetos: 'projetos', 'Solicitações de alteração': 'solicitacoes', Suporte: 'suporte', 'Sistemas dos clientes': 'sistemas',
   Módulos: 'modulos', Planos: 'planos', Licenças: 'licencas', 'Contas a receber': 'contas-a-receber', 'Contas a pagar': 'contas-a-pagar',
-  'Fluxo de caixa': 'fluxo-de-caixa', Transações: 'transacoes', 'Categorias financeiras': 'categorias-financeiras', Relatórios: 'relatorios', Equipe: 'equipe',
+  'Fluxo de caixa': 'fluxo-de-caixa', Recorrências: 'recorrencias', Orçamento: 'orcamento', Relatórios: 'relatorios', Equipe: 'equipe',
   Usuários: 'usuarios', 'Papéis e permissões': 'papeis-e-permissoes', Emblemas: 'emblemas', 'Configuração de XP': 'configuracao-xp', 'Meu perfil': 'meu-perfil', 'Meu histórico': 'meu-historico', Configurações: 'configuracoes', Aparência: 'aparencia', Auditoria: 'auditoria',
 }
 
 const metrics = [
   { label: 'Leads ativos', value: '0', hint: 'Nenhum lead cadastrado', icon: faUserPlus, tone: 'blue' },
-  { label: 'Clientes ativos', value: '0', hint: 'Nenhum cliente cadastrado', icon: faUsers, tone: 'violet' },
+  { label: 'Clientes ativos', value: '0', hint: 'Nenhum cliente cadastrado', icon: faUsers, tone: 'blue' },
   { label: 'Projetos em andamento', value: '0', hint: 'Nenhum projeto cadastrado', icon: faDiagramProject, tone: 'cyan' },
   { label: 'Chamados abertos', value: '0', hint: 'Nenhum chamado aberto', icon: faHeadset, tone: 'amber' },
-  { label: 'Contratos ativos', value: '0', hint: 'Nenhum contrato cadastrado', icon: faFileContract, tone: 'emerald' },
+  { label: 'Contratos ativos', value: '0', hint: 'Nenhum contrato cadastrado', icon: faFileContract, tone: 'blue' },
   { label: 'Valores a receber', value: 'R$ 0,00', hint: 'Nenhum lançamento pendente', icon: faArrowTrendUp, tone: 'teal' },
   { label: 'Valores vencidos', value: 'R$ 0,00', hint: 'Nenhum lançamento vencido', icon: faArrowTrendDown, tone: 'rose' },
   { label: 'Receita no mês', value: 'R$ 0,00', hint: 'Nenhum recebimento registrado', icon: faChartLine, tone: 'indigo' },
@@ -124,10 +121,8 @@ const metrics = [
 
 const toneClasses: Record<string, string> = {
   blue: 'bg-blue-500/10 text-blue-400',
-  violet: 'bg-violet-500/10 text-violet-400',
   cyan: 'bg-cyan-500/10 text-cyan-400',
   amber: 'bg-amber-500/10 text-amber-400',
-  emerald: 'bg-emerald-500/10 text-emerald-400',
   teal: 'bg-teal-500/10 text-teal-400',
   rose: 'bg-rose-500/10 text-rose-400',
   indigo: 'bg-indigo-500/10 text-indigo-400',
@@ -136,7 +131,22 @@ const toneClasses: Record<string, string> = {
 type WorkspaceNotification = { id: string; message: string; notification_type: string; entity_type?: string | null; entity_id?: string | null; link_path?: string | null; read_at: string | null; created_at: string }
 type SearchItem = { label: string; slug: string; group: string }
 type DashboardRankingMember = { id: string; full_name: string; role_name: string; xp: number; level: number; milestone_name?: string }
-type DashboardData = { team: number; clients: number; projects: number; tickets: number; contracts: number; messages: number; ranking: DashboardRankingMember[] }
+type DashboardActivity = { id: string; summary: string; created_at: string }
+type DashboardDue = { description: string; due_date: string; amount: number }
+type DashboardProjectStatus = { status: string; count: number }
+type DashboardData = { team: number; leads: number; clients: number; projects: number; tickets: number; contracts: number; messages: number; openReceivables: number; overdueReceivables: number; receivedThisMonth: number; ranking: DashboardRankingMember[]; activity: DashboardActivity[]; upcoming: DashboardDue[]; projectStatus: DashboardProjectStatus[] }
+
+function DashboardDataPanels({ data }: { data: DashboardData }) {
+  const money = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
+  const date = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short' })
+  return <>
+    <section className="mt-6 grid gap-6 xl:grid-cols-[1.45fr_1fr]">
+      <div className="rounded-xl border border-white/[0.07] bg-[#11161e]"><div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4"><div><h2 className="text-sm font-semibold text-slate-200">Atividade recente</h2><p className="mt-0.5 text-xs text-slate-500">Últimas ações registradas no workspace</p></div><button onClick={() => window.location.assign('/workspace/auditoria')} className="text-xs font-medium text-blue-400 hover:text-blue-300">Ver histórico</button></div>{data.activity.length ? <div className="divide-y divide-white/[0.06]">{data.activity.map((item) => <div key={item.id} className="flex items-center justify-between gap-4 px-5 py-3"><p className="truncate text-xs text-slate-300">{item.summary}</p><time className="shrink-0 text-[10px] text-slate-500">{date.format(new Date(item.created_at))}</time></div>)}</div> : <div className="flex min-h-[220px] items-center justify-center px-6 text-center"><p className="text-xs text-slate-600">Nenhuma atividade registrada.</p></div>}</div>
+      <div className="rounded-xl border border-white/[0.07] bg-[#11161e]"><div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4"><div><h2 className="text-sm font-semibold text-slate-200">Próximos vencimentos</h2><p className="mt-0.5 text-xs text-slate-500">Lançamentos financeiros nos próximos 30 dias</p></div></div>{data.upcoming.length ? <div className="divide-y divide-white/[0.06]">{data.upcoming.map((item, index) => <div key={`${item.due_date}-${index}`} className="flex items-center justify-between gap-3 px-5 py-3"><div className="min-w-0"><p className="truncate text-xs text-slate-300">{item.description}</p><time className="text-[10px] text-slate-500">{date.format(new Date(item.due_date))}</time></div><span className="shrink-0 text-xs font-semibold text-amber-300">{money.format(item.amount)}</span></div>)}</div> : <div className="flex min-h-[220px] items-center justify-center px-6 text-center"><p className="text-xs text-slate-600">Nenhum vencimento encontrado nos próximos 30 dias.</p></div>}</div>
+    </section>
+    <section className="mt-6 rounded-xl border border-white/[0.07] bg-[#11161e]"><div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4"><div><h2 className="text-sm font-semibold text-slate-200">Projetos por status</h2><p className="mt-0.5 text-xs text-slate-500">Distribuição real dos projetos cadastrados</p></div></div>{data.projectStatus.length ? <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-4">{data.projectStatus.map((item) => <div key={item.status} className="rounded-lg bg-white/[0.03] p-4"><p className="text-xs text-slate-500">{item.status}</p><p className="mt-1 text-2xl font-semibold text-slate-100">{item.count}</p></div>)}</div> : <div className="flex min-h-[150px] items-center justify-center px-6 text-center"><p className="text-xs text-slate-600">Cadastre projetos para visualizar a distribuição por status.</p></div>}</section>
+  </>
+}
 
 function DashboardContent({ initialSection = 'Dashboard', page, permissions, profileName = '' }: { initialSection?: string; page?: ReactNode; permissions: string[]; profileName?: string }) {
   const router = useRouter()
@@ -154,7 +164,7 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
   const [notificationsLoading, setNotificationsLoading] = useState(false)
   const [notificationsError, setNotificationsError] = useState('')
   const [actionableNotificationIds, setActionableNotificationIds] = useState<string[]>([])
-  const [dashboardData, setDashboardData] = useState<DashboardData>({ team: 0, clients: 0, projects: 0, tickets: 0, contracts: 0, messages: 0, ranking: [] })
+  const [dashboardData, setDashboardData] = useState<DashboardData>({ team: 0, leads: 0, clients: 0, projects: 0, tickets: 0, contracts: 0, messages: 0, openReceivables: 0, overdueReceivables: 0, receivedThisMonth: 0, ranking: [], activity: [], upcoming: [], projectStatus: [] })
   const [profileAvatarUrl, setProfileAvatarUrl] = useState('')
   const [profileNickname, setProfileNickname] = useState('')
   const searchInput = useRef<HTMLInputElement>(null)
@@ -165,6 +175,12 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
     const routeModule = pathname.split('/').filter(Boolean)[1]
     setActiveSection(routeModule ? workspaceLabel(routeModule) ?? initialSection : 'Dashboard')
   }, [initialSection, pathname])
+
+  useEffect(() => {
+    const activeGroup = navigationGroups.find((group) => group.items.some((item) => item.label === activeSection))
+    if (!activeGroup) return
+    setOpenNavGroups((current) => current.has(activeGroup.label) ? current : new Set([...current, activeGroup.label]))
+  }, [activeSection])
 
   useEffect(() => {
     let active = true
@@ -181,16 +197,25 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
 
   useEffect(() => {
     let active = true
+    let loadedAppearance: WorkspaceAppearance = defaultAppearance
     const loadAppearance = async () => {
-      const { data } = await createClient().from('user_preferences').select('theme,primary_color,secondary_color,tertiary_color,background_color,surface_color,sidebar_color,header_color,text_color,muted_text_color,border_color,focus_color,font_size_base,heading_scale,font_weight,line_height,letter_spacing,button_radius,card_radius,shadow_strength,appearance_palette,accent_color,font_family,radius_scale,contrast_mode,motion_mode,navigation_collapsed,table_density').maybeSingle()
-      if (!active) return
-      if (data) applyWorkspaceAppearance({ ...defaultAppearance, ...(data as Partial<WorkspaceAppearance>) })
-      else applyWorkspaceTheme(getWorkspaceThemePreference())
+      const supabase = createClient()
+      const { data: authData, error: authError } = await supabase.auth.getUser()
+      if (authError || !authData.user) return
+      const { data, error } = await supabase
+        .from('user_preferences')
+        .select('theme,primary_color,background_color,surface_color,sidebar_color,header_color,text_color,muted_text_color,border_color,focus_color,font_size_base,heading_scale,font_weight,line_height,letter_spacing,button_radius,card_radius,shadow_strength,appearance_palette,accent_color,font_family,radius_scale,contrast_mode,motion_mode')
+        .eq('user_id', authData.user.id)
+        .maybeSingle()
+      if (!active || error) return
+      const loaded = data as (Partial<WorkspaceAppearance> & { accent_color?: string }) | null
+      loadedAppearance = { ...defaultAppearance, ...(loaded ?? {}), icon_color: resolveIconColor(loaded?.appearance_palette, loaded?.accent_color) }
+      applyWorkspaceAppearance(loadedAppearance)
     }
     void loadAppearance()
     const colorScheme = window.matchMedia('(prefers-color-scheme: light)')
     const onSystemThemeChange = () => {
-      if (getWorkspaceThemePreference() === 'system') applyWorkspaceTheme('system')
+      if (loadedAppearance.theme === 'system') applyWorkspaceAppearance(loadedAppearance)
     }
     colorScheme.addEventListener('change', onSystemThemeChange)
     return () => { active = false; colorScheme.removeEventListener('change', onSystemThemeChange) }
@@ -200,8 +225,8 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
     if (activeSection !== 'Dashboard') return
     void fetch('/api/workspace/dashboard', { cache: 'no-store' }).then(async (response) => {
       if (!response.ok) return
-      const data = await response.json() as { metrics?: { team?: number; clients?: number; projects?: number; tickets?: number; contracts?: number; messages?: number }; ranking?: DashboardRankingMember[] }
-      setDashboardData({ team: data.metrics?.team ?? 0, clients: data.metrics?.clients ?? 0, projects: data.metrics?.projects ?? 0, tickets: data.metrics?.tickets ?? 0, contracts: data.metrics?.contracts ?? 0, messages: data.metrics?.messages ?? 0, ranking: data.ranking ?? [] })
+      const data = await response.json() as { metrics?: { team?: number; leads?: number; clients?: number; projects?: number; tickets?: number; contracts?: number; messages?: number; openReceivables?: number; overdueReceivables?: number; receivedThisMonth?: number }; ranking?: DashboardRankingMember[]; activity?: DashboardActivity[]; upcoming?: DashboardDue[]; projectStatus?: DashboardProjectStatus[] }
+      setDashboardData({ team: data.metrics?.team ?? 0, leads: data.metrics?.leads ?? 0, clients: data.metrics?.clients ?? 0, projects: data.metrics?.projects ?? 0, tickets: data.metrics?.tickets ?? 0, contracts: data.metrics?.contracts ?? 0, messages: data.metrics?.messages ?? 0, openReceivables: data.metrics?.openReceivables ?? 0, overdueReceivables: data.metrics?.overdueReceivables ?? 0, receivedThisMonth: data.metrics?.receivedThisMonth ?? 0, ranking: data.ranking ?? [], activity: data.activity ?? [], upcoming: data.upcoming ?? [], projectStatus: data.projectStatus ?? [] })
     })
   }, [activeSection])
 
@@ -268,17 +293,15 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
     if (notification.read_at) return
     const readAt = new Date().toISOString()
     try {
-      const { data, error } = await createClient().from('notifications')
-        .update({ read_at: readAt })
-        .eq('id', notification.id)
-        .select('id')
-        .maybeSingle()
-      if (error || !data) {
-        console.error('Workspace notification update failed:', error?.message ?? 'No notification row was updated')
-        setNotificationsError('Não foi possível marcar a notificação como lida.')
-        return
-      }
-      setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, read_at: readAt } : item))
+  const { error } = await createClient().from('notifications')
+  .update({ read_at: readAt })
+  .eq('id', notification.id)
+  if (error) {
+  console.error('Workspace notification update failed:', error.message)
+  setNotificationsError('Não foi possível marcar a notificação como lida.')
+  return
+  }
+  setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, read_at: readAt } : item))
     } catch (error) {
       console.error('Workspace notification update request failed:', error)
       setNotificationsError('Não foi possível marcar a notificação como lida.')
@@ -334,7 +357,7 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
 
   return (
     <div className="workspace-shell min-h-screen bg-[#090b10] text-slate-100">
-      <aside className={`workspace-sidebar fixed inset-y-0 left-0 z-40 flex w-[258px] flex-col border-r border-white/[0.08] bg-[#0d1118] transition-transform duration-200 lg:translate-x-0 ${collapsed ? 'lg:w-[78px]' : ''} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside className={`workspace-sidebar fixed inset-y-0 left-0 z-40 flex w-[258px] flex-col border-r border-white/[0.08] bg-[var(--workspace-sidebar)] transition-transform duration-200 lg:translate-x-0 ${collapsed ? 'lg:w-[78px]' : ''} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex h-24 items-center border-b border-white/[0.08] px-3">
           <div className="flex min-w-0 flex-1 items-center justify-center">
             <Image src="/codexa-logo.png" alt="Codexa" width={150} height={150} priority className={`shrink-0 object-contain ${collapsed ? 'size-16' : 'size-24'}`} />
@@ -356,7 +379,7 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
                 {visibleItems.map((item) => {
                   const icon = item.icon
                   const isActive = activeSection === item.label
-                  return <button key={item.label} onClick={() => openSection(item.label)} className={`group relative flex min-h-10 items-center gap-3 rounded-lg border-l-2 px-3 py-2 text-left text-[13px] transition-colors ${isActive ? 'border-blue-400 bg-blue-400/10 font-medium text-blue-200' : 'border-transparent text-slate-400 hover:bg-white/[0.04] hover:text-slate-100'} ${collapsed ? 'justify-center px-0' : ''}`} title={collapsed ? item.label : undefined} aria-current={isActive ? 'page' : undefined}><FontAwesomeIcon icon={icon} className={`size-3.5 shrink-0 ${isActive ? 'text-blue-300' : 'text-slate-500 group-hover:text-slate-300'}`} />{!collapsed && <span className="truncate">{item.label}</span>}</button>
+                  return <button key={item.label} onClick={() => openSection(item.label)} className={`group relative flex min-h-10 items-center gap-3 rounded-lg border-l-2 px-3 py-2 text-left text-[13px] transition-colors ${isActive ? 'workspace-nav-active font-medium' : 'border-transparent text-slate-400 hover:bg-white/[0.04] hover:text-slate-100'} ${collapsed ? 'justify-center px-0' : ''}`} title={collapsed ? item.label : undefined} aria-current={isActive ? 'page' : undefined}><FontAwesomeIcon icon={icon} className={`size-3.5 shrink-0 ${isActive ? 'workspace-nav-icon-active' : 'text-slate-500 group-hover:text-slate-300'}`} />{!collapsed && <span className="truncate">{item.label}</span>}</button>
                 })}
               </div>}
             </div>
@@ -366,12 +389,12 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
       </aside>
       {mobileOpen && <button className="fixed inset-0 z-30 bg-black/60 lg:hidden" onClick={() => setMobileOpen(false)} aria-label="Fechar menu" />}
       <div className={`transition-[margin] duration-200 ${collapsed ? 'lg:ml-[78px]' : 'lg:ml-[258px]'}`}>
-        <header className="workspace-header sticky top-0 z-20 flex min-h-[72px] flex-wrap items-center gap-2 border-b border-white/[0.08] bg-[#090b10]/88 px-3 py-2 backdrop-blur-xl sm:gap-4 sm:px-7">
+        <header className="workspace-header sticky top-0 z-20 flex min-h-[72px] flex-wrap items-center gap-2 border-b border-white/[0.08] bg-[var(--workspace-header)] px-3 py-2 backdrop-blur-xl sm:gap-4 sm:px-7">
           <button className="rounded-md p-2 text-slate-400 hover:bg-white/5 lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Abrir menu"><Menu className="size-5" /></button>
           <div className="hidden items-center gap-2 text-xs text-slate-500 sm:flex"><span>Workspace</span><ChevronRight className="size-3" /><span className="text-slate-300">{activeSection}</span></div>
           <div className="ml-auto flex items-center gap-2">
             <button onClick={() => setSearchOpen(true)} aria-label="Buscar (Ctrl+K)" className="hidden items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2 text-xs text-slate-500 transition-colors hover:border-white/15 hover:text-slate-300 md:flex"><Search className="size-3.5" />Buscar<span className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-slate-600">Ctrl K</span></button>
-            {canUseAssistant && <button type="button" onClick={() => setAssistantOpen((current) => !current)} aria-label={assistantHasConversation ? 'Code-X, conversa ativa' : 'Code-X'} aria-expanded={assistantOpen} title="Code-X · Ctrl+Shift+A" className={`relative grid size-9 place-items-center rounded-lg border transition-colors ${assistantOpen ? 'border-blue-400/40 bg-blue-400/10 text-blue-200' : 'border-white/[0.08] bg-white/[0.025] text-slate-400 hover:border-white/15 hover:text-slate-100'}`}><Sparkles className="size-4" />{assistantHasConversation && <span aria-hidden="true" className="absolute right-1 top-1 size-1.5 rounded-full bg-emerald-400" />}</button>}
+            {canUseAssistant && <button type="button" onClick={() => setAssistantOpen((current) => !current)} aria-label={assistantHasConversation ? 'Code-X, conversa ativa' : 'Code-X'} aria-expanded={assistantOpen} title="Code-X · Ctrl+Shift+A" className={`relative grid size-9 place-items-center overflow-hidden rounded-lg border transition-colors ${assistantOpen ? 'border-blue-400/40 bg-blue-400/10 text-blue-200' : 'border-white/[0.08] bg-white/[0.025] text-slate-400 hover:border-white/15 hover:text-slate-100'}`}><Image src="/codexa-logo.png" alt="" width={28} height={28} className="size-7 object-contain" />{assistantHasConversation && <span aria-hidden="true" className="absolute right-1 top-1 size-1.5 rounded-full bg-emerald-400" />}</button>}
             <div className="relative">
               <button onClick={() => void toggleNotifications()} className="relative rounded-lg p-2 text-slate-400 hover:bg-white/5 hover:text-white" aria-label="Notificações" aria-expanded={notificationsOpen}>
                 <Bell className="size-[18px]" />
@@ -400,7 +423,7 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
           </div>
         </header>
         <main className="workspace-main mx-auto w-full max-w-[1500px] overflow-x-hidden px-3 py-5 sm:px-7 sm:py-7 lg:px-9">{shouldRenderRoutePage ? page : <>{activeSection === 'Dashboard' &&         <div id="dashboard-overview" className="scroll-mt-24"><div className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><p className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-blue-400">Visão geral</p><h1 className="text-2xl font-semibold tracking-tight text-white sm:text-[28px]">Olá, {displayName}</h1><p className="mt-1.5 text-sm text-slate-500">Acompanhe as áreas permitidas para você.</p></div>{permissions.includes('*') && <button className="flex w-fit items-center gap-2 rounded-lg bg-blue-500 px-3.5 py-2.5 text-xs font-semibold text-white shadow-lg shadow-blue-500/15 transition-colors hover:bg-blue-400"><Plus className="size-4" />Adicionar registro</button>}</div>
-          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">{metrics.map((metric) => ({ ...metric, value: metric.label === 'Clientes ativos' ? String(dashboardData.clients) : metric.label === 'Projetos em andamento' ? String(dashboardData.projects) : metric.label === 'Chamados abertos' ? String(dashboardData.tickets) : metric.label === 'Contratos ativos' ? String(dashboardData.contracts) : metric.value, hint: metric.label === 'Clientes ativos' ? 'Membros ativos no workspace' : metric.label === 'Chamados abertos' ? 'Mensagens novas para triagem' : metric.hint })).filter((metric) => {
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">{metrics.map((metric) => ({ ...metric, value: metric.label === 'Leads ativos' ? String(dashboardData.leads) : metric.label === 'Clientes ativos' ? String(dashboardData.clients) : metric.label === 'Projetos em andamento' ? String(dashboardData.projects) : metric.label === 'Chamados abertos' ? String(dashboardData.tickets) : metric.label === 'Contratos ativos' ? String(dashboardData.contracts) : metric.label === 'Valores a receber' ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(dashboardData.openReceivables) : metric.label === 'Valores vencidos' ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(dashboardData.overdueReceivables) : metric.label === 'Receita no mês' ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(dashboardData.receivedThisMonth) : metric.value, hint: metric.label === 'Clientes ativos' ? 'Clientes cadastrados' : metric.label === 'Leads ativos' ? 'Leads cadastrados' : metric.label === 'Chamados abertos' ? 'Chamados em aberto' : metric.label === 'Valores a receber' ? 'Saldo pendente de recebimento' : metric.label === 'Valores vencidos' ? 'Saldo vencido em aberto' : metric.label === 'Receita no mês' ? 'Recebimentos no mês atual' : metric.hint })).filter((metric) => {
             const metricPermission: Record<string, string> = {
               'Leads ativos': 'leads:view', 'Clientes ativos': 'clients:view', 'Projetos em andamento': 'projects:view',
               'Chamados abertos': 'support:view', 'Contratos ativos': 'contracts:view',
@@ -409,15 +432,15 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
             }
             return permissions.includes('*') || permissions.includes(metricPermission[metric.label])
           }).map((metric) => { const icon = metric.icon; return <article key={metric.label} className="rounded-xl border border-white/[0.07] bg-[#11161e] p-4 transition-colors hover:border-white/[0.12]"><div className="flex items-start justify-between"><div className={`grid size-9 place-items-center rounded-lg ${toneClasses[metric.tone]}`}><FontAwesomeIcon icon={icon} className="size-4" /></div><button aria-label={`Mais opções de ${metric.label}`} className="text-slate-600 hover:text-slate-300"><MoreHorizontal className="size-4" /></button></div><p className="mt-4 text-xs text-slate-500">{metric.label}</p><p className="mt-1 text-xl font-semibold tracking-tight text-slate-100">{metric.value}</p><p className="mt-1 text-[11px] text-slate-600">{metric.hint}</p></article> })}</section>
-          <section className="mt-6 grid gap-6 xl:grid-cols-[1.45fr_1fr]"><div className="rounded-xl border border-white/[0.07] bg-[#11161e]"><div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4"><div><h2 className="text-sm font-semibold text-slate-200">Atividade recente</h2><p className="mt-0.5 text-xs text-slate-500">Acompanhe as últimas ações do workspace</p></div><button className="text-xs font-medium text-blue-400 hover:text-blue-300">Ver histórico</button></div><div className="flex min-h-[220px] flex-col items-center justify-center px-6 text-center"><div className="mb-3 grid size-11 place-items-center rounded-full border border-white/[0.08] bg-white/[0.03]"><Activity className="size-5 text-slate-600" /></div><p className="text-sm font-medium text-slate-400">Nenhuma atividade registrada</p><p className="mt-1 max-w-xs text-xs leading-5 text-slate-600">As ações da sua equipe aparecerão aqui quando os primeiros registros forem criados.</p></div></div><div className="rounded-xl border border-white/[0.07] bg-[#11161e]"><div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4"><div><h2 className="text-sm font-semibold text-slate-200">Próximos vencimentos</h2><p className="mt-0.5 text-xs text-slate-500">Compromissos financeiros e contratuais</p></div><button className="text-slate-600 hover:text-slate-300" aria-label="Mais opções"><MoreHorizontal className="size-4" /></button></div><div className="flex min-h-[220px] flex-col items-center justify-center px-6 text-center"><div className="mb-3 grid size-11 place-items-center rounded-full border border-white/[0.08] bg-white/[0.03]"><WalletCards className="size-5 text-slate-600" /></div><p className="text-sm font-medium text-slate-400">Tudo em dia</p><p className="mt-1 max-w-xs text-xs leading-5 text-slate-600">Nenhum vencimento encontrado para os próximos dias.</p></div></div></section>
+          <DashboardDataPanels data={dashboardData} />
           <section className="mt-6 rounded-xl border border-white/[0.07] bg-[#11161e]"><div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4"><div className="flex items-center gap-3"><div className="grid size-9 place-items-center rounded-lg bg-amber-400/10 text-amber-300"><FontAwesomeIcon icon={faTrophy} className="size-4" /></div><div><h2 className="text-sm font-semibold text-slate-200">Ranking da empresa</h2><p className="mt-0.5 text-xs text-slate-500">Evolução da equipe por XP e nível</p></div></div><span className="text-xs text-slate-500">Atualizado agora</span></div><div className="divide-y divide-white/[0.06]">{dashboardData.ranking.length ? dashboardData.ranking.map((member, index) => <div key={member.id} className="flex items-center gap-3 px-5 py-3"><span className={`grid size-7 place-items-center rounded-lg text-xs font-semibold ${index === 0 ? 'bg-amber-300/15 text-amber-200' : 'bg-white/[.04] text-slate-400'}`}>{index + 1}</span><div className="min-w-0 flex-1"><p className="truncate text-xs font-medium text-slate-200">{member.full_name}</p><p className="text-[10px] text-slate-500">{member.role_name} · nível {member.level} · marco: {member.milestone_name ?? 'Iniciante'}</p></div><span className="text-xs font-semibold text-cyan-300">{member.xp} XP</span></div>) : <div className="flex min-h-[150px] items-center justify-center px-6 text-center"><p className="text-xs text-slate-600">Adicione XP à equipe para formar o ranking.</p></div>}</div></section>
-          <section className="mt-6 rounded-xl border border-white/[0.07] bg-[#11161e]"><div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4"><div><h2 className="text-sm font-semibold text-slate-200">Projetos por status</h2><p className="mt-0.5 text-xs text-slate-500">Distribuição dos projetos ativos</p></div><button className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300">Este mês <ChevronDown className="size-3.5" /></button></div><div className="flex min-h-[150px] items-center justify-center px-6 text-center"><p className="text-xs text-slate-600">Cadastre projetos para visualizar a distribuição por status.</p></div></section>
+
           </div>}
-          {['Leads', 'Mensagens', 'Clientes'].includes(activeSection) && <div id="crm-workspace" className="scroll-mt-24"><CrmWorkspace initialModule={activeSection === 'Clientes' ? 'clients' : activeSection === 'Mensagens' ? 'messages' : 'leads'} permissions={permissions} /></div>}
+          {['Leads', 'Clientes'].includes(activeSection) && <div id="crm-workspace" className="scroll-mt-24"><CrmWorkspace initialModule={activeSection === 'Clientes' ? 'clients' : 'leads'} permissions={permissions} /></div>}
           {['Propostas', 'Contratos'].includes(activeSection) && <div id="commercial-workspace" className="scroll-mt-24"><CommercialWorkspace initialTab={activeSection === 'Contratos' ? 'contracts' : 'proposals'} permissions={permissions} /></div>}
           {['Projetos', 'Solicitações de alteração', 'Suporte'].includes(activeSection) && <div id="operations-workspace" className="scroll-mt-24"><OperationsWorkspace permissions={permissions} initialModule={activeSection === 'Suporte' ? 'support_tickets' : activeSection === 'Solicitações de alteração' ? 'change_requests' : 'projects'} /></div>}
           {['Sistemas dos clientes', 'Módulos'].includes(activeSection) && <div id="catalog-workspace" className="scroll-mt-24"><CatalogWorkspace initialTab={activeSection === 'Módulos' ? 'modules' : 'systems'} /></div>}
-          {['Contas a receber', 'Contas a pagar', 'Fluxo de caixa', 'Transações', 'Categorias financeiras'].includes(activeSection) && <div id="finance-workspace" className="scroll-mt-24"><FinanceWorkspace initialTab={activeSection === 'Contas a receber' ? 'receivable' : activeSection === 'Contas a pagar' ? 'payable' : activeSection === 'Fluxo de caixa' ? 'cashflow' : 'overview'} permissions={permissions} /></div>}
+          {['Contas a receber', 'Contas a pagar', 'Fluxo de caixa', 'Recorrências', 'Orçamento'].includes(activeSection) && <div id="finance-workspace" className="scroll-mt-24"><FinanceWorkspace initialTab={activeSection === 'Contas a receber' ? 'receivable' : activeSection === 'Contas a pagar' ? 'payable' : activeSection === 'Fluxo de caixa' ? 'cashflow' : activeSection === 'Recorrências' ? 'recurring' : activeSection === 'Orçamento' ? 'budget' : 'overview'} permissions={permissions} /></div>}
           {activeSection === 'Relatórios' && <div id="reports-workspace" className="scroll-mt-24"><ReportsWorkspace permissions={permissions} /></div>}
           {['Equipe', 'Configurações'].includes(activeSection) && <div id="admin-workspace" className="scroll-mt-24"><AdminWorkspace section={activeSection} permissions={permissions} /></div>}
           {activeSection === 'Configuração de XP' && <XpSettingsWorkspace />}
@@ -425,9 +448,8 @@ function DashboardContent({ initialSection = 'Dashboard', page, permissions, pro
           {activeSection === 'Meu histórico' && <ActivityHistoryWorkspace permissions={permissions} mode="personal" />}
           {activeSection === 'Meu perfil' && <GamifiedProfileWorkspace initialName={profileName} />}
   {activeSection === 'Aparência' && <AccountWorkspace section={activeSection} initialName={profileName} />}
-          {!['Dashboard', 'Leads', 'Mensagens', 'Clientes', 'Propostas', 'Contratos', 'Projetos', 'Solicitações de alteração', 'Suporte', 'Sistemas', 'Módulos', 'Planos', 'Licenças', 'Financeiro', 'Equipe', 'Relatórios', 'Configurações', 'Auditoria', 'Meu histórico', 'Emblemas', 'Configuração de XP'].includes(activeSection) && <section className="rounded-xl border border-white/[0.07] bg-[#11161e] p-8"><p className="text-xs font-medium uppercase tracking-[0.16em] text-blue-400">Módulo</p><h1 className="mt-2 text-2xl font-semibold text-white">{activeSection}</h1><p className="mt-2 text-sm text-slate-500">Esta página está preparada para receber os registros deste módulo.</p></section>}
+          {!['Dashboard', 'Leads', 'Clientes', 'Propostas', 'Contratos', 'Projetos', 'Solicitações de alteração', 'Suporte', 'Sistemas', 'Módulos', 'Planos', 'Licenças', 'Financeiro', 'Equipe', 'Relatórios', 'Configurações', 'Auditoria', 'Meu histórico', 'Emblemas', 'Configuração de XP'].includes(activeSection) && <section className="rounded-xl border border-white/[0.07] bg-[#11161e] p-8"><p className="text-xs font-medium uppercase tracking-[0.16em] text-blue-400">Módulo</p><h1 className="mt-2 text-2xl font-semibold text-white">{activeSection}</h1><p className="mt-2 text-sm text-slate-500">Esta página está preparada para receber os registros deste módulo.</p></section>}
           </>}
-          <div className="mt-7 flex items-center gap-2 text-[11px] text-slate-600"><div className="size-1.5 rounded-full bg-amber-400" />Supabase conectado · CRM pronto para seus primeiros registros.</div>
         </main>
       </div>
       {searchOpen && <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/65 px-4 pt-[12vh]" onMouseDown={(event) => { if (event.target === event.currentTarget) setSearchOpen(false) }}>

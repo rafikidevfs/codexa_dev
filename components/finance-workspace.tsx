@@ -43,20 +43,26 @@ function getOpenBalance(item: Receivable | Payable) {
   return Math.max(amount - paid, 0)
 }
 
+function isSettledStatus(status: string) {
+  return ['pago', 'recebido', 'quitado', 'paid', 'received', 'settled'].includes(status.trim().toLocaleLowerCase('pt-BR'))
+}
+
 function isOverdue(item: Receivable | Payable) {
-  if (!item.due_date || item.status === 'Pago' || item.status === 'Recebido' || item.status === 'Pago' || item.status === 'Quitado') return false
-  const due = new Date(`${item.due_date}T12:00:00`)
+  if (!item.due_date || isSettledStatus(item.status) || getOpenBalance(item) <= 0) return false
+  const due = new Date(`${item.due_date.slice(0, 10)}T12:00:00`)
   return due.getTime() < Date.now()
 }
 
 function withinRange(dateValue: string | null | undefined, range: RangeOption) {
   if (!dateValue || range === 'all') return true
-  const date = new Date(`${dateValue}T12:00:00`)
+  const date = new Date(`${dateValue.slice(0, 10)}T12:00:00`)
   const now = new Date()
   const offset = range === '30d' ? 30 : 90
   const from = new Date(now)
   from.setDate(now.getDate() - offset)
-  return date >= from && date <= now
+  const to = new Date(now)
+  to.setDate(now.getDate() + offset)
+  return date >= from && date <= to
 }
 
 export function FinanceWorkspace({ initialTab = 'overview', permissions = [] }: { initialTab?: FinanceTab; permissions?: string[] }) {
@@ -83,8 +89,10 @@ export function FinanceWorkspace({ initialTab = 'overview', permissions = [] }: 
 
   async function load() {
     setLoading(true)
-    const supabase = createClient()
-    const [receivableResult, payableResult, recurringResult] = await Promise.all([
+  const supabase = createClient()
+  const { error: generationError } = await supabase.rpc('generate_financial_recurring_cycles', { p_until: new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10) })
+  if (generationError) setMessage(`Não foi possível gerar recorrências: ${generationError.message}`)
+  const [receivableResult, payableResult, recurringResult] = await Promise.all([
       supabase.from('accounts_receivable').select('id,description,category,original_amount,final_amount,paid_amount,due_date,status,created_at,recurring_schedule_id,recurring_cycle_key').order('due_date'),
       supabase.from('accounts_payable').select('id,beneficiary,description,amount,paid_amount,due_date,status,created_at,recurring_schedule_id,recurring_cycle_key').order('due_date'),
       supabase.from('financial_recurring_schedules').select('id,description,kind,amount,category,beneficiary,frequency,anchor_day,first_due_date,end_date,status,next_due_date,last_generated_date').order('next_due_date'),
@@ -100,15 +108,18 @@ export function FinanceWorkspace({ initialTab = 'overview', permissions = [] }: 
   }
 
   useEffect(() => { void load() }, [])
-  useEffect(() => { if (tab === 'recurring') void createClient().rpc('generate_financial_recurring_cycles', { p_until: new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10) }).then(() => void load()) }, [tab])
 
   async function createEntry(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const selectedPermission = tab === 'payable' ? 'accounts_payable:create' : 'accounts_receivable:create'
     if (!permissions.includes('*') && !permissions.includes(selectedPermission)) return
+    const amount = Number(form.amount)
+    if (!Number.isFinite(amount) || amount <= 0 || !form.description.trim() || !form.due_date) {
+      setMessage('Informe descrição, valor positivo e vencimento.')
+      return
+    }
     setSaving(true)
     const supabase = createClient()
-    const amount = Number(form.amount)
     const table = tab === 'payable' ? 'accounts_payable' : 'accounts_receivable'
     const payload = tab === 'payable'
       ? { beneficiary: 'A definir', description: form.description, amount, paid_amount: 0, due_date: form.due_date, status: 'Pendente' }
@@ -155,9 +166,10 @@ export function FinanceWorkspace({ initialTab = 'overview', permissions = [] }: 
 
   async function deleteRecurring(item: RecurringSchedule) {
     if (!canDelete || !window.confirm(`Excluir a recorrência “${item.description}”? Os lançamentos já gerados serão preservados.`)) return
-    const { error } = await createClient().from('financial_recurring_schedules').delete().eq('id', item.id)
-    if (error) setMessage(`Não foi possível excluir a recorrência: ${error.message}`)
-    else { if (editingRecurringId === item.id) setEditingRecurringId(null); setMessage('Recorrência excluída.'); await load() }
+  const { data: deletedRows, error } = await createClient().from('financial_recurring_schedules').delete().eq('id', item.id).select('id')
+  if (error) setMessage(`Não foi possível excluir a recorrência: ${error.message}`)
+  else if (!deletedRows?.length) setMessage('A recorrência não foi excluída. Verifique sua permissão para excluir registros financeiros.')
+  else { if (editingRecurringId === item.id) setEditingRecurringId(null); setMessage('Recorrência excluída.'); await load() }
   }
 
   async function deleteRecord(item: FinanceRecord) {
@@ -198,10 +210,10 @@ export function FinanceWorkspace({ initialTab = 'overview', permissions = [] }: 
 
   const visibleFinanceRows = tab === 'payable' ? filteredPayables.slice(page * 10, page * 10 + 10) : filteredReceivables.slice(page * 10, page * 10 + 10)
 
-  const outstandingReceivables = filteredReceivables.reduce((sum, item) => sum + getOpenBalance(item), 0)
-  const outstandingPayables = filteredPayables.reduce((sum, item) => sum + getOpenBalance(item), 0)
-  const overdueReceivables = filteredReceivables.filter(isOverdue).reduce((sum, item) => sum + getOpenBalance(item), 0)
-  const overduePayables = filteredPayables.filter(isOverdue).reduce((sum, item) => sum + getOpenBalance(item), 0)
+  const outstandingReceivables = receivables.reduce((sum, item) => sum + getOpenBalance(item), 0)
+  const outstandingPayables = payables.reduce((sum, item) => sum + getOpenBalance(item), 0)
+  const overdueReceivables = receivables.filter(isOverdue).reduce((sum, item) => sum + getOpenBalance(item), 0)
+  const overduePayables = payables.filter(isOverdue).reduce((sum, item) => sum + getOpenBalance(item), 0)
   const netCash = outstandingReceivables - outstandingPayables
 
   const periodReceivables = filteredReceivables.reduce((sum, item) => sum + Number(item.paid_amount || 0), 0)
@@ -257,9 +269,9 @@ export function FinanceWorkspace({ initialTab = 'overview', permissions = [] }: 
 
       const entry = monthEntries.get(key)!
       if ('beneficiary' in item) {
-        entry.outflow += Number(item.paid_amount || item.amount || 0)
+        entry.outflow += Number(item.paid_amount || 0)
       } else {
-        entry.inflow += Number(item.paid_amount || item.final_amount || 0)
+        entry.inflow += Number(item.paid_amount || 0)
       }
     })
 
@@ -520,7 +532,7 @@ export function FinanceWorkspace({ initialTab = 'overview', permissions = [] }: 
         <h2 className="text-sm font-semibold text-slate-200">Sugestão de operação</h2>
         <div className="mt-4 space-y-3">
           <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Cobran��a prevista</p>
+            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Cobrança prevista</p>
             <p className="mt-2 text-lg font-semibold text-white">{money(recurringSchedules.filter((item) => item.kind === 'receita').reduce((sum, item) => sum + Number(item.amount || 0), 0))}</p>
           </div>
           <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">

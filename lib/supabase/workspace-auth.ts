@@ -30,22 +30,60 @@ export async function getWorkspaceActor(): Promise<WorkspaceActor> {
   const authClient = createServerClient(url, key, {
     cookies: {
       getAll: () => cookieStore.getAll(),
-      setAll: (values) => values.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
+      // Server Components can read cookies but cannot persist refreshed auth cookies.
+      // The write is handled by the request proxy when present; never let it crash the workspace render.
+      setAll: (values) => {
+        try {
+          values.forEach(({ name, value, options }) => cookieStore.set(name, value, options))
+        } catch {
+          // Expected when getUser refreshes a token during a Server Component render.
+        }
+      },
     },
   })
   const { data: { user }, error: authError } = await authClient.auth.getUser()
   if (authError || !user) throw new AdminApiError('Autenticação necessária.', 401)
 
   const supabase = createServiceClient()
-  const { data: members, error: memberError } = await supabase
+  let { data: members, error: memberError } = await supabase
     .from('team_members')
-    .select('id,role_name,status,full_name')
+    .select('id,user_id,role_name,status,full_name,email')
     .eq('user_id', user.id)
     .limit(2)
   if (memberError) {
     console.error('Workspace member lookup failed:', memberError.message)
     throw new AdminApiError('Não foi possível verificar o acesso à equipe.', 503)
   }
+
+  // Repair legacy invitations that were inserted before the Auth user was linked.
+  // The match is intentionally strict: one exact e-mail and one orphaned membership only.
+  if (!members?.length && user.email) {
+    const { data: orphanMembers, error: orphanError } = await supabase
+      .from('team_members')
+      .select('id,user_id,role_name,status,full_name,email')
+      .is('user_id', null)
+      .ilike('email', user.email.trim().toLowerCase())
+      .limit(2)
+    if (orphanError) {
+      console.error('Workspace orphan membership lookup failed:', orphanError.message)
+      throw new AdminApiError('Não foi possível verificar o vínculo de acesso.', 503)
+    }
+    if (orphanMembers?.length === 1) {
+      const { data: repairedMember, error: repairError } = await supabase
+        .from('team_members')
+        .update({ user_id: user.id, updated_at: new Date().toISOString() })
+        .eq('id', orphanMembers[0].id)
+        .is('user_id', null)
+        .select('id,user_id,role_name,status,full_name,email')
+        .single()
+      if (repairError || !repairedMember) {
+        console.error('Workspace orphan membership repair failed:', repairError?.message ?? 'No repaired member returned')
+        throw new AdminApiError('Não foi possível vincular sua conta ao membro da equipe.', 503)
+      }
+      members = [repairedMember]
+    }
+  }
+
   if (!members?.length) throw new AdminApiError('Sua conta não está vinculada a um membro ativo da equipe.', 403)
   if (members.length > 1) throw new AdminApiError('Sua conta possui vínculos de equipe duplicados. Contate um administrador.', 403)
   const member = members[0]

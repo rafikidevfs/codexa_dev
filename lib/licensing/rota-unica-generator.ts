@@ -27,6 +27,7 @@ export type RotaUnicaAnalysis = {
   warnings: string[]
   uncertain: string[]
   requiresConfirmation: boolean
+  compatibility: number
 }
 
 function unique(values: string[]) { return [...new Set(values)] }
@@ -145,12 +146,18 @@ export function analyzeAdminClient(source: string, modules: IntegrationModule[])
     const dependencies = [...context.matchAll(/<([A-Z][A-Za-z0-9_]*)/g)].map((match) => match[1]).filter((name, index, values) => values.indexOf(name) === index).slice(0, 8)
     return { tab, code: candidate, confidence, hasContent, hasTrigger, navigationElements, contentEvidence, functionalities, dependencies }
   })
-  const mappings = detectedTabs.filter((item) => item.code && item.confidence >= 0.9).map(({ tab, code }) => ({ tab, code }))
-  const uncertain = detectedTabs.filter((item) => !item.code || item.confidence < 0.9).map((item) => item.tab)
-  const warnings = ['As associações são baseadas somente em evidências encontradas no código e exigem confirmação antes da instalação.']
-  if (!normalizedTabs.length) warnings.push('Nenhuma navegação por abas ou rota foi identificada; a análise estrutural continua disponível e o mapeamento pode ser informado manualmente.')
-  if (uncertain.length) warnings.push(`${uncertain.length} área(s) não possuem evidência suficiente para associação automática.`)
-  return { stateName, tabs: normalizedTabs, detectedTabs, mappings, sharedComponents, warnings, uncertain, requiresConfirmation: true }
+  // A compatibilidade é uma recomendação, não um bloqueio. Mapeamentos com
+  // evidência direta (código do módulo ou alias inequívoco) são preenchidos
+  // automaticamente; os demais continuam disponíveis para revisão manual.
+  const mappings = detectedTabs.filter((item) => item.code && item.confidence >= 0.62).map(({ tab, code }) => ({ tab, code }))
+  const uncertain = detectedTabs.filter((item) => !item.code).map((item) => item.tab)
+  const compatibility = normalizedTabs.length
+    ? Math.round((mappings.length / normalizedTabs.length) * 100)
+    : 0
+  const warnings = [`Compatibilidade estimada: ${compatibility}%. O percentual orienta a revisão e não impede a geração do pacote.`]
+  if (!normalizedTabs.length) warnings.push('Nenhuma navegação por abas ou rota foi identificada; o pacote será gerado com o mapeamento vazio e poderá ser complementado depois.')
+  if (uncertain.length) warnings.push(`${uncertain.length} área(s) não possuem evidência suficiente para associação automática; elas ficarão sem bloqueio específico até serem mapeadas.`)
+  return { stateName, tabs: normalizedTabs, detectedTabs, mappings, sharedComponents, warnings, uncertain, requiresConfirmation: false, compatibility }
 }
 
 function addAllowedProp(ast: t.File) {
@@ -185,24 +192,79 @@ function addAllowedProp(ast: t.File) {
   return changed
 }
 
+function removeExistingGeneratedExports(ast: t.File) {
+  traverse(ast, {
+    VariableDeclaration(path) {
+      const names = path.node.declarations
+        .map((declaration) => t.isIdentifier(declaration.id) ? declaration.id.name : '')
+      if (names.some((name) => ['CODEXA_TAB_MAPPING', 'CodexaAllowedModules'].includes(name))) path.remove()
+    },
+    TSTypeAliasDeclaration(path) {
+      if (path.node.id.name === 'CodexaAllowedModules') path.remove()
+    },
+    FunctionDeclaration(path) {
+      if (path.node.id?.name === 'codexaCanUseModule') path.remove()
+    },
+  })
+}
+
+function addActiveTabGuards(ast: t.File) {
+  let changed = false
+  traverse(ast, {
+    FunctionDeclaration(path) {
+      const params = path.node.params[0]
+      if (!t.isObjectPattern(params) || !params.properties.some((property) => t.isObjectProperty(property) && t.isIdentifier(property.key, { name: 'allowedModules' }))) return
+      const activeStateNames = new Set<string>()
+      path.traverse({
+        VariableDeclarator(statePath) {
+          const init = statePath.node.init
+          if (!t.isCallExpression(init) || !t.isIdentifier(init.callee, { name: 'useState' })) return
+          if (!t.isArrayPattern(statePath.node.id) || !t.isIdentifier(statePath.node.id.elements[0])) return
+          const stateName = statePath.node.id.elements[0].name
+          if (/^(active|selected|current)?tab$/i.test(stateName) || /(?:active|selected|current).*tab/i.test(stateName)) {
+            activeStateNames.add(stateName)
+          }
+        },
+      })
+      if (!activeStateNames.size) return
+      const activeTab = [...activeStateNames][0]
+      const access = t.memberExpression(t.identifier('allowedModules'), t.identifier(activeTab), true)
+      const guard = t.ifStatement(
+        t.binaryExpression('===', access, t.booleanLiteral(false)),
+        t.blockStatement([t.returnStatement(t.jsxElement(t.jsxOpeningElement(t.jsxIdentifier('CodexaModuleBlocked'), [], true), null, []))]),
+      )
+      const lastDeclarationIndex = path.node.body.body.reduce((lastIndex, statement, index) => t.isVariableDeclaration(statement) ? index : lastIndex, -1)
+      path.node.body.body.splice(lastDeclarationIndex + 1, 0, guard)
+      changed = true
+      path.stop()
+    },
+  })
+  return changed
+}
+
 export function generateRotaUnicaIntegration(originalCode: string, modules: IntegrationModule[], mapping?: TabMapping[]) {
   const analysis = analyzeAdminClient(originalCode, modules)
-  const selected = mapping?.length ? mapping : analysis.mappings
-  if (selected.length === 0) throw new Error('Confirme o mapeamento explícito entre cada área detectada e o código do módulo Codexa antes de gerar.')
+  const explicit = mapping?.length ? mapping : []
+  const explicitTabs = new Set(explicit.map((item) => item?.tab).filter(Boolean))
+  // Preserve mappings manually supplied by the operator and fill only missing
+  // tabs from the analyzer. An empty or partial JSON is valid by design.
+  const selected = [...explicit, ...analysis.mappings.filter((item) => !explicitTabs.has(item.tab))]
   if (selected.some((item) => !item || typeof item.tab !== 'string' || typeof item.code !== 'string' || !item.tab.trim() || !item.code.trim())) throw new Error('Cada mapeamento precisa conter uma aba e um código de módulo preenchidos.')
   const tabsSeen = new Set<string>()
   if (selected.some((item) => tabsSeen.has(item.tab) || !tabsSeen.add(item.tab))) throw new Error('Cada aba detectada só pode ser mapeada uma vez.')
   const validTabs = new Set(analysis.tabs)
   const validCodes = new Set(modules.map((module) => module.code))
   if (selected.some((item) => (validTabs.size > 0 && !validTabs.has(item.tab)) || !validCodes.has(item.code))) throw new Error('O mapeamento contém uma aba, rota ou código de módulo inexistente.')
-  if (analysis.tabs.length > 0 && analysis.tabs.some((tab) => !selected.some((item) => item.tab === tab))) throw new Error('Mapeie todas as áreas detectadas antes de gerar o pacote.')
   const ast = parse(originalCode, adminClientParserOptions as never)
+  removeExistingGeneratedExports(ast)
   if (!addAllowedProp(ast)) throw new Error('A página foi analisada, mas não encontrei um componente AdminClient modificável.')
+  addActiveTabGuards(ast)
   const generated = generate(ast, { retainLines: false, jsescOption: { minimal: true } }).code
-  const guard = `\n\nexport type CodexaAllowedModules = Record<string, boolean>\n\nexport function codexaCanUseModule(allowedModules: CodexaAllowedModules, code: string) {\n  return allowedModules[code] === true\n}\n\nexport const CODEXA_TAB_MAPPING = ${JSON.stringify(selected, null, 2)} as const\n`
+  const guard = `\n\nexport function CodexaModuleBlocked() {\n  return <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-950 px-5 py-8 text-slate-50"><div className="pointer-events-none absolute -left-24 -top-24 size-72 rounded-full bg-indigo-500/20 blur-3xl" /><div className="pointer-events-none absolute -bottom-32 -right-24 size-80 rounded-full bg-cyan-400/15 blur-3xl" /><section className="relative w-full max-w-xl rounded-3xl border border-white/10 bg-slate-900/90 p-8 text-center shadow-2xl shadow-black/30 backdrop-blur sm:p-11"><div className="mx-auto mb-6 grid size-14 place-items-center rounded-2xl bg-gradient-to-br from-indigo-500 to-cyan-400 text-xl font-extrabold text-indigo-50 shadow-xl shadow-indigo-950/40">C</div><p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-indigo-300">Acesso restrito</p><h1 className="mt-3 text-3xl font-bold tracking-tight">Módulo não disponível</h1><p className="mx-auto mt-4 max-w-md text-sm leading-7 text-slate-400">Este módulo não está liberado para esta licença. Entre em contato com a Codexa para solicitar a liberação.</p><div className="mx-auto mt-7 h-1 w-12 rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400" /></section></main>\n}\n\nexport type CodexaAllowedModules = Record<string, boolean>\n\nexport function codexaCanUseModule(allowedModules: CodexaAllowedModules, code: string) {\n  return allowedModules[code] === true\n}\n\nexport const CODEXA_TAB_MAPPING = ${JSON.stringify(selected, null, 2)} as const\n`
   return { source: `${generated}${guard}`, analysis: { ...analysis, mappings: selected } }
 }
 
-export function generatePageWrapper() {
-  return `import AdminClient from './AdminClient'\nimport { getCodexaDecision } from '@/lib/codexa-license'\n\nexport default async function AdminPage() {\n  const decision = await getCodexaDecision()\n  if (!decision.valid) return <main className="mx-auto flex min-h-screen max-w-xl items-center justify-center p-6"><section><h1>Acesso administrativo indisponível</h1><p>{decision.reason ?? 'A licença não está válida ou o serviço não está disponível.'}</p></section></main>\n  const allowedModules = Object.fromEntries(decision.modules.map((module) => [module.code, module.contracted && module.enabled && module.available && module.licensed]))\n  return <AdminClient allowedModules={allowedModules} />\n}\n`
+export function generatePageWrapper(mapping: TabMapping[] = []) {
+  const serializedMapping = JSON.stringify(mapping)
+  return `import AdminClient from './AdminClient'\nimport { getCodexaDecision } from '@/lib/codexa-license'\n\nexport const dynamic = 'force-dynamic'\nexport const revalidate = 0\n\nexport default async function AdminPage() {\n  const decision = await getCodexaDecision()\n  if (!decision.valid) return <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-950 px-5 py-8 text-slate-50"><div className="pointer-events-none absolute -left-24 -top-24 size-72 rounded-full bg-indigo-500/20 blur-3xl" /><div className="pointer-events-none absolute -bottom-32 -right-24 size-80 rounded-full bg-cyan-400/15 blur-3xl" /><section className="relative w-full max-w-xl rounded-3xl border border-white/10 bg-slate-900/90 p-8 text-center shadow-2xl shadow-black/30 backdrop-blur sm:p-11"><div className="mx-auto mb-6 grid size-14 place-items-center rounded-2xl bg-gradient-to-br from-indigo-500 to-cyan-400 text-xl font-extrabold text-indigo-50 shadow-xl shadow-indigo-950/40">C</div><p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-indigo-300">Acesso restrito</p><h1 className="mt-3 text-3xl font-bold tracking-tight">Acesso administrativo indisponível</h1><p className="mx-auto mt-4 max-w-md text-sm leading-7 text-slate-400">{decision.reason ?? 'A licença não está válida ou o serviço não está disponível.'}</p><div className="mx-auto mt-7 h-1 w-12 rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400" /></section></main>\n\n  const allowedModules = Object.fromEntries(decision.modules.flatMap((module) => {\n    const enabled = module.contracted && module.enabled && module.available && module.licensed\n    const tabAliases = ${serializedMapping}.filter((mapping) => mapping.code === module.code).map((mapping) => mapping.tab)\n    return [module.code, ...tabAliases].map((code) => [code, enabled])\n  }))\n\n  return <AdminClient allowedModules={allowedModules} />\n}\n`
 }
